@@ -1,0 +1,29 @@
+# Production-style: the app and firmware are baked into the image (tests run during the build).
+# Rebuild to pick up changes. For development without rebuilds use docker-compose.dev.yml.
+#
+#   docker compose up -d --build                   -> http://127.0.0.1:8660 (Chrome/Edge)
+#   docker compose --profile test run --rm test    -> tests against the running web service
+#
+# WebHID needs a secure context: http://localhost / 127.0.0.1 is one. For another machine,
+# put the site behind HTTPS (see PLAN.md, phase 5).
+
+services:
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "127.0.0.1:8660:80"   # local only; 127.0.0.1 and localhost are secure contexts for WebHID
+    restart: unless-stopped
+
+  test:
+    build:
+      context: .
+      target: test
+    environment:
+      WEB_URL: http://web
+    command: ["node", "--test", "tests/"]
+    depends_on:
+      web:
+        condition: service_healthy
+    profiles: ["test"]

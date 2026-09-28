@@ -1,0 +1,39 @@
+# Development: nothing is built. Stock images + the source folders mounted, so every
+# change to web/, firmware/, tests/ or docker/nginx.conf is live:
+#   - web/ and firmware/: just reload the page (nginx sends Cache-Control: no-store)
+#   - docker/nginx.conf:  docker compose -f docker-compose.dev.yml restart web
+#
+#   docker compose -f docker-compose.dev.yml up -d                           -> http://127.0.0.1:8660
+#   docker compose -f docker-compose.dev.yml --profile test run --rm test    -> tests on current files
+#   docker compose -f docker-compose.dev.yml down
+
+services:
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8660:80"   # local only; 127.0.0.1 and localhost are secure contexts for WebHID
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./firmware:/srv/firmware:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/firmware/manifest.json >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  test:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      WEB_URL: http://web
+    volumes:
+      - ./web:/app/web:ro
+      - ./firmware:/app/firmware:ro
+      - ./tests:/app/tests:ro
+    command: ["node", "--test", "tests/"]
+    depends_on:
+      web:
+        condition: service_healthy
+    profiles: ["test"]

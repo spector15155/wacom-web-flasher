@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PTH-660 Flasher</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 17.5 14.5 7l2.5 2.5L6.5 20H4v-2.5Zm12-12 1.5-1.5a1.4 1.4 0 0 1 2 0l.5.5a1.4 1.4 0 0 1 0 2L18.5 8 16 5.5Z" fill="currentColor"/></svg>
+      </div>
+      <div>
+        <h1>PTH-660 Flasher</h1>
+        <p class="sub">Wacom Intuos Pro M firmware tool</p>
+      </div>
+    </div>
+    <div class="conn">
+      <span id="conn-pill" class="pill off"><span class="dot"></span><span id="conn-text">Not connected</span></span>
+      <button id="connect" class="btn primary">Connect tablet</button>
+      <button id="disconnect" class="btn ghost" hidden title="Close the connection to the tablet">Disconnect</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="support" class="banner warn" hidden>
+      This browser can't talk to USB devices. Use desktop <b>Chrome</b> or <b>Edge</b>, on
+      <code>http://127.0.0.1</code>, <code>localhost</code> or HTTPS.
+    </section>
+
+    <!-- device -->
+    <section class="card" id="device-card">
+      <div class="card-head">
+        <h2>Tablet</h2>
+        <button id="refresh" class="btn ghost small" disabled>Refresh</button>
+      </div>
+      <div class="slots">
+        <div class="slot" id="slot-a"><div class="slot-name">Slot A</div><div class="slot-ver">-</div><div class="slot-sub"></div></div>
+        <div class="slot" id="slot-b"><div class="slot-name">Slot B</div><div class="slot-ver">-</div><div class="slot-sub"></div></div>
+      </div>
+      <p class="hint" id="device-hint">Connect the tablet to see what's installed. The tablet runs one slot; new firmware always goes into the other one first, so the running firmware is never overwritten while in use.</p>
+    </section>
+
+    <!-- actions -->
+    <section class="actions" id="actions">
+      <button class="action" data-action="install" disabled>
+        <span class="a-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2h14v-2" /></svg></span>
+        <span class="a-title">Install firmware</span>
+        <span class="a-sub">Pick a build from the list</span>
+      </button>
+      <button class="action" data-action="backup" disabled>
+        <span class="a-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 7h14v12H5zM8 7V4h8v3M9 12h6" /></svg></span>
+        <span class="a-title">Back up tablet</span>
+        <span class="a-sub">Save both slots to one file</span>
+      </button>
+      <button class="action" data-action="restore" disabled>
+        <span class="a-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v5h5" /></svg></span>
+        <span class="a-title">Restore from file</span>
+        <span class="a-sub">A backup .pkg or a .bin image</span>
+      </button>
+    </section>
+
+    <!-- wizard -->
+    <section class="card wizard" id="wizard" hidden>
+      <div class="card-head">
+        <h2 id="wz-title">-</h2>
+        <button id="wz-close" class="btn ghost small">Close</button>
+      </div>
+      <ol class="stepper" id="stepper">
+        <li data-step="choose">Choose</li>
+        <li data-step="review">Review</li>
+        <li data-step="run">Run</li>
+        <li data-step="done">Done</li>
+      </ol>
+      <div id="wz-body"></div>
+      <div class="wz-foot" id="wz-foot"></div>
+    </section>
+
+    <details class="card about-card" id="about">
+      <summary>About &amp; disclaimer</summary>
+      <p>This is an <b>unofficial, community-made</b> tool and firmware for the Wacom Intuos Pro M (PTH-660).
+        It isn't made, approved or supported by Wacom.</p>
+      <p>We've built in every safeguard we could: new firmware only goes into the slot the tablet isn't running,
+        every write is read back and checked before the tablet switches to it, you can back up both slots first,
+        and Wacom's original firmware is included so you can always go back.</p>
+      <p>Still, flashing firmware always carries some risk, and custom firmware may affect your warranty.
+        <b>You flash at your own risk:</b> the author can't be held responsible for damaged or bricked tablets,
+        lost data or warranty issues. If that doesn't sit right with you, it's completely fine not to flash;
+        the stock firmware works well.</p>
+      <p class="fine">Provided "as is", without warranty of any kind. Wacom and Intuos are trademarks of Wacom Co., Ltd.;
+        this project is not affiliated with Wacom.</p>
+    </details>
+
+    <details class="card log-card">
+      <summary>Technical log</summary>
+      <pre id="log"></pre>
+    </details>
+  </main>
+
+  <footer class="foot">Unofficial community tool, not affiliated with Wacom. You flash at your own risk:
+    <a href="#about" id="about-link">about &amp; disclaimer</a>.</footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

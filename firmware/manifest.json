@@ -1,0 +1,115 @@
+{
+  "format": 1,
+  "device": {
+    "vendorId": 1386,
+    "productId": 855,
+    "usagePage": 65293,
+    "name": "Wacom Intuos Pro M (PTH-660)"
+  },
+  "firmware": [
+    {
+      "file": "pth660_v245_best.pkg",
+      "size": 670951,
+      "sha256": "fba04c4351d46ab1c36cffee7f7762a76ec26c717efd39732d87a6a97385bb3d",
+      "id": "v2.45",
+      "title": "v2.45 (recommended)",
+      "recommended": true,
+      "kind": "custom",
+      "summary": "v1.65 + the missing 4th frame per loop when the coil window is unchanged. ~730 real reports/s, stock pressure, buttons and filters.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0245",
+          "base": "0x08040000",
+          "size": 334848,
+          "sha256": "0c0743b801442ead8f0cc42b0a96c7c345e3adcd9a094fa3c87fe4b814f68ff8"
+        },
+        {
+          "slot": "b",
+          "version": "0x0245",
+          "base": "0x080A0000",
+          "size": 335360,
+          "sha256": "5a720d36964e04b5f2fdceffd652d9cc2b5cbeea843b914ccfb269fee8f47df4"
+        }
+      ]
+    },
+    {
+      "file": "pth660_v165_600hz.pkg",
+      "size": 669943,
+      "sha256": "c48763c4235658ad430e75df9a4538e522f9e01b7fb1d8147af81e04b1ec6343",
+      "id": "v1.65",
+      "title": "v1.65 (600 Hz)",
+      "recommended": false,
+      "kind": "custom",
+      "summary": "3 frames per scan loop, ~600 real reports/s. Stable fallback; has the 'every 4th report missing' pattern in fast drags.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0165",
+          "base": "0x08040000",
+          "size": 334336,
+          "sha256": "400dc0340615eb6e78dccaecf2ba63ca7d35932c241d7b7d63999fe744f73e47"
+        },
+        {
+          "slot": "b",
+          "version": "0x0165",
+          "base": "0x080A0000",
+          "size": 334848,
+          "sha256": "8c5c4f0f1a8a6d65dbd40df1ef06fcb84ebd30922d1a3d1a99b55fd34f2c5bcf"
+        }
+      ]
+    },
+    {
+      "file": "pth660_stock_v151_v152.pkg",
+      "size": 668812,
+      "sha256": "12d30e77ee8999e0fff587e241e1c2dedfe42cef9d251a8256990b37c084f5fd",
+      "id": "stock",
+      "title": "Wacom stock v1.51 / v1.52",
+      "recommended": false,
+      "kind": "stock",
+      "summary": "Original Wacom firmware (~200 reports/s). Use to restore the tablet to factory firmware.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0151",
+          "base": "0x08040000",
+          "size": 333824,
+          "sha256": "0b9e60f50e7b66331988db6a14e81527e2007b48cba6e22e6e336059e68e6b29"
+        },
+        {
+          "slot": "b",
+          "version": "0x0152",
+          "base": "0x080A0000",
+          "size": 334336,
+          "sha256": "4442c7cf83c4879c5171d2f4d39a613c346e8b5ae4b02251ea9dc4a0ea1c4e4c"
+        }
+      ]
+    },
+    {
+      "file": "pth660_v249_1000hz_nobuttons.pkg",
+      "size": 673065,
+      "sha256": "2c96361f837edb397775b292616cf6492de666e3cf7cd88ca6b24d9adef13218",
+      "id": "v2.49",
+      "title": "v2.49 (~1000 Hz, side buttons broken)",
+      "recommended": false,
+      "kind": "experimental",
+      "summary": "~900-1000 real position reports/s via extra position cycles. Pressure real but updates ~37 Hz. Side buttons broken. Holding a side button can make the cursor jitter.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0249",
+          "base": "0x08040000",
+          "size": 335872,
+          "sha256": "20c7363aa9ee33fe634b32e822056a5a19175bad22a1c585d79d385e6a3396e9"
+        },
+        {
+          "slot": "b",
+          "version": "0x0249",
+          "base": "0x080A0000",
+          "size": 336384,
+          "sha256": "e35d5f45deef4d2a4e84f160c5ddc265fbd26fa9f9414cccf2eb96f2c7043108"
+        }
+      ]
+    }
+  ]
+}

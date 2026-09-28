@@ -1,0 +1,6 @@
+reference/
+build/
+docs/
+**/__pycache__
+*.md
+!README.md
