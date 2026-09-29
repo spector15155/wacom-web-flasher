@@ -230,6 +230,8 @@ def main():
     ap.add_argument("--double", action="store_true",
                     help="--output: two pen reports per tick, two per USB packet (2000/s); implies --pace")
     ap.add_argument("--pace", action="store_true", help="--output: HID / USB task loops paced to exactly 1 ms")
+    ap.add_argument("--pointlog", action="store_true",
+                    help="--output diagnostic: log every history point to a 2048-entry RAM ring at 0x20034000")
     ap.add_argument("--predict", action="store_true",
                     help="--output: past the newest position continue along its direction (<= 4 ms)")
     a = ap.parse_args()
@@ -274,6 +276,8 @@ def main():
                        USB_FREE=hex(O["usb_free"]), USB_SEND=hex(O["usb_send"]),
                        DOUBLE="1" if a.double else "0", OS_DELAY=hex(O["os_delay"]),
                        PREDICT="1" if a.predict else "0")
+        if a.pointlog:
+            defines["POINTLOG"] = "1"
         if a.pos == "output":
             defines["SRC_OUTPUT"] = "1"
         sources.append("out.c")

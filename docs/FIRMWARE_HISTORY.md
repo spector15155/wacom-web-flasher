@@ -4,7 +4,7 @@
 Flash: `tools\flash_universal.py firmware\images\pth660_v245_BEST_universal.pkg --arm --both`
 ~730 reports/s (stock: ~200), stock pressure, side buttons, hover and filters. The pen is still measured ~206
 times/s as in stock; the extra reports are Wacom's own smoothed in-between positions (see "Input lag" below).
-Lower lag and an even 1000 / 2000 reports/s: v3.21 / v3.22 (see below).
+An even 1000 / 2000 reports/s with real positions only: v3.29 / v3.28 (see below).
 
 Full experiment log: [SENSOR_LINK.md](SENSOR_LINK.md).
 
@@ -75,9 +75,11 @@ burst pattern can't be changed without breaking pressure / buttons / hover). "La
 delay from pen movement to the tablet's USB report, excluding the PC. Built from measured pieces, not an
 end-to-end measurement. Every custom build shares Wacom's own processing (~5.6 ms, itself estimated from "output
 trails the raw scan by 3-6 results"), so the absolute values may be off by a couple of ms either way; the
-differences between builds come from measured parts and are more reliable. v3.21 / v3.22 are lower than v2.45
-because of the look-ahead (no wait for Wacom's next result: v2.45 measured 0.9 ms), not because of their report
-rate: v3.22's two reports per packet reach the PC together, and the first one is half a tick older (+0.25 ms).
+differences between builds come from measured parts and are more reliable. Even timing without prediction costs
+lag: Wacom's newest position is usually 1.5-4 ms old when a report is built, so an even stream of real positions
+has to run that far behind (v3.28 / v3.29), while v2.45 sends each position as soon as it is ready (unevenly).
+A higher report rate doesn't lower lag: v3.28's two reports per packet reach the PC together, and the first one is
+half a tick older (+0.25 ms).
 
 | Firmware | Reports/s | Lag (est.) | Where the delay comes from |
 |---|---|---|---|
@@ -85,38 +87,42 @@ rate: v3.22's two reports per packet reach the PC together, and the first one is
 | v1.65 | ~600 | ~8 ms | measured: output trails the raw scan by 3-6 results (~5-10 ms), plus calc -> USB (0.9 ms measured) and USB (~0.5 ms) |
 | v2.45 | ~730 | ~7 ms | as v1.65, but 4 results per loop, so the 4-report average spans one loop |
 | v2.99 | 1000 (even) | ~9 ms | fixed 6 ms interpolation delay from frame hand-over + Wacom's 2-scan per-scan average (~2.4 ms) + USB (~0.5 ms) |
-| v3.21 | 1000 (even) | ~6.4 ms | Wacom's own output at frame hand-over (~5.6 ms: v2.45's 7 ms minus its calc -> USB and USB parts); no fixed delay (the short look-ahead covers the 1.5-4 ms until Wacom's next position arrives) + USB (~0.5-0.75 ms) |
-| v3.22 | ~1900-2000 (even, 2 per packet) | ~6.5 ms | as v3.21; the first report of each packet is half a tick older (+0.25 ms avg) |
+| v3.29 | 1000 (even) | ~8.5 ms | Wacom's own output at frame hand-over (~5.6 ms: v2.45's 7 ms minus its calc -> USB and USB parts) + ~2.5 ms fixed delay behind it (3.25 ms on the even loop timeline, whose stamps are ~0.75 ms earlier than arrival on average) + USB (~0.5 ms) |
+| v3.28 | ~1900-2000 (even, 2 per packet) | ~9 ms | as v3.29; the first report of each packet is half a tick older (+0.25 ms avg) |
 
-## v3.22 (2000 Hz) and v3.21 (1000 Hz): even output on Wacom's own positions, lower lag than v2.45
+## v3.28 (2000 Hz) and v3.29 (1000 Hz): even output, real positions only
 
-`firmware/pth660_v322_2000hz.pkg`, `firmware/pth660_v321_1000hz.pkg`. The pen scan, Wacom's calc and its report
+`firmware/pth660_v328_2000hz.pkg`, `firmware/pth660_v329_1000hz.pkg`. The pen scan, Wacom's calc and its report
 builder run exactly as in v2.45 (same frames, same cadence), so pressure, side buttons, hover and Wacom's filtering
 are untouched and straight lines are as clean as v2.45 (ruler test). A new output stage, written in C
 (`build/s2x/out.c`, built by `build/make_s2c.py`), replaces only the timing:
-- each frame is time-stamped when it is handed to Wacom's calc; the stamp follows its result to the report
 - positions come only from the in-range pen records Wacom itself builds (never from its internal state), so the
   output can't contain a position stock wouldn't send (an earlier version read the calc's internal state and
   flicked to the top-left corner at the limit of hover height)
-- every report is placed on the path of those positions at the current time. Wacom's newest position is usually
-  1.5-4 ms old when a report is built, so the report continues along the direction of the last >= 2 ms of the path,
-  at most 4 ms ahead, and not in far hover (coarse-search positions). This look-ahead is what brings the lag under
-  v2.45; the cost is a slight overshoot on sudden stops or sharp turns (about speed x 2 ms, ~0.4 mm at a fast
-  stroke), corrected when the next position arrives. Pressure, buttons and proximity are Wacom's own
+- each frame is time-stamped when it is handed to Wacom's calc, and the stamp follows its result to the report.
+  Wacom moves its output one equal step per frame, but a loop's four frames reach it at ~0 / 2.65 / 3.5 / 4.3 ms;
+  they are stamped at 0, 1/4, 1/2 and 3/4 of the measured loop period instead, so the cursor moves at a steady
+  speed within the loop (with the raw times it pulsed ~3x faster in the bunched part)
+- every report lies on the straight line between two positions Wacom has already delivered, 3.25 ms behind on that
+  timeline (~2.5 ms behind real arrival). No prediction, so no overshoot; at this delay a report practically never
+  has to wait for the next position (0 holds/s measured while drawing)
 - extra smoothing only where Wacom's output is rough: the top / left edge strip (coil window 0, where Wacom
   extrapolates past the last coil; up to 8 positions at slow speed, none when fast; edge jitter at slow speed
   59 -> 12 counts p90) and a median-of-3 spike filter in far hover
 - the HID and USB task loops are paced to exactly 1 ms (stock loses a tick whenever a pass overruns: ~900/s)
-- v3.22 only: two reports per tick (half a tick apart), sent together in one 64-byte USB packet (the PC splits
-  them). Measured 1901 in-range reports/s
+- v3.28 only: two reports per tick (half a tick apart), sent together in one 64-byte USB packet (the PC splits
+  them). Measured ~1900-2000 in-range reports/s
 
-Earlier versions of this output stage used a fixed delay instead of the look-ahead (never ahead of Wacom's newest
-position): 4 ms (~10 ms total lag, v3.17) and 2.5 ms (~9 ms, v3.20, with ~5 % of reports briefly holding).
+Tried and dropped on the way: a short look-ahead (continue the path up to 4-6 ms past the newest position,
+v3.21-v3.27) brought the lag under v2.45 (~6.5 ms est.), but overshot on circles and sudden stops (graded by the
+firmware itself: mean ~0.15-0.45 mm depending on the motion). Curve-following and adaptive variants were worse in
+an offline test on recorded strokes. Earlier fixed delays on raw arrival times: 4 ms (~10 ms, v3.17) and 2.5 ms
+(~9 ms, v3.20, ~5 % of reports briefly holding).
 
-Build (reproduces the shipped v3.22 / v3.21 byte for byte; needs arm-none-eabi-gcc): `make_frame23.py` on the
-v1.65 bases gives v2.45, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v322.bin
---version 0x0322 --output --pos output --nos2 --delay-us 0 --predict --double` (v3.21: `--version 0x0321` and
-`--pace` instead of `--double`; same for slot b), then `make_pkg.py`.
+Build (reproduces the shipped v3.28 / v3.29 byte for byte; needs arm-none-eabi-gcc): `make_frame23.py` on the
+v1.65 bases gives v2.45, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v328.bin
+--version 0x0328 --output --pos output --nos2 --delay-us 3250 --double` (v3.29: `--version 0x0329` and `--pace`
+instead of `--double`; same for slot b), then `make_pkg.py`.
 
 ### Tried on the way (not shipped)
 - Reading the pen more often: the pen-data steps (P) only transmit, nothing is received there; the S2 data scan

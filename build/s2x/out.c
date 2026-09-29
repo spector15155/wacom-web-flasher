@@ -42,13 +42,16 @@
 #define RING_W   (*(volatile uint16_t *)(0x2000F8E8 + 0x151E))
 #define RING_R   (*(volatile uint16_t *)(0x2000F8E8 + 0x1520))
 #define CUR      ((volatile uint8_t *)CUR_ADDR)
-#define OUT      ((volatile struct out *)0x2003F600)
-#define OMAGIC   0x4F55543Bu
+#define OUT      ((volatile struct out *)0x2003C000)   /* 0x2003C000-0x2003CFFF: no references in the stock image */
+#define OMAGIC   0x4F55543Eu
+#define NSD      5                       /* shadow delays graded: 0, 0.5, 1.0, 1.5, 2.0 ms */
+#define NSE      8
 #ifndef PREDICT
 #define PREDICT  0
 #endif
-#define PRED_MAX   (4000 * CYC_US)          /* look-ahead limit past the newest position */
-#define PRED_SPAN  (2000 * CYC_US)          /* direction from positions at least this far apart */
+#define PRED_MAX   (6000 * CYC_US)          /* look-ahead limit past the newest position */
+#define NPE      16                      /* predictions kept for grading */
+#define STEPB    (*(volatile uint8_t *)STEP_ADDR)
 #define NH       8                       /* interpolation history */
 #define NR       8                       /* raw positions for the filters */
 #define NQ       8                       /* calc result stamps waiting for their record */
@@ -82,6 +85,17 @@ struct out {
     uint32_t age_hist[16];              /* age of the newest point at each in-range tick, 0.5 ms bins */
     uint8_t lvl, pad3[3];               /* tracking level of the newest point */
     uint32_t n_pred;                    /* positions extended past the newest point */
+    /* loop-phase timeline (v3.23) */
+    uint32_t anchor;                    /* push time of this loop's step-24 frame */
+    uint32_t period;                    /* loop period (EMA of step-24 push intervals) */
+    uint32_t n_realstamp;               /* frames stamped with real time (no loop phase known) */
+    /* prediction grading: predicted positions, checked once Wacom's real position for that time arrives */
+    struct pe { uint32_t t; int32_t x, y; uint32_t valid; } pe[NPE];
+    uint32_t pe_w;
+    uint32_t perr_n, perr_sum, perr_hist[8]; /* |dx|+|dy| counts: <10 <20 <40 <80 <160 <320 <640 >=640 */
+    uint32_t last_stamp;                /* stamp of the previous frame (fallback timeline) */
+    /* shadow grading: the same look-ahead evaluated for several delays on the same motion, once per tick */
+    struct sd { struct pe pe[NSE]; uint32_t w, n, sum, hist[8]; } sd[NSD];
 };
 
 #ifndef DOUBLE
@@ -107,8 +121,36 @@ void out_push(void)
     if (o->magic != OMAGIC)
         init(o);
     uint16_t w = RING_W;
-    if (w < 3)
-        o->stamp[w] = DWT_CYC;
+    if (w >= 3)
+        return;
+    /* Wacom's calc moves its output one equal step per frame, but the frames of a ~4.85 ms loop reach it at
+     * ~0 / 2.65 / 3.5 / 4.3 ms (steps 24, 28, 29, 23). Stamping them with those real times makes the path look ~3x
+     * faster in the bunched part (look-ahead overshoot, e.g. on circles). Stamp them at 0, 1/4, 1/2, 3/4 of the
+     * measured loop period after this loop's step-24 frame instead. */
+    uint32_t now = DWT_CYC;
+    uint8_t st = STEPB;
+    int ph = st == 24 ? 0 : st == 28 ? 1 : st == 29 ? 2 : st == 23 ? 3 : -1;
+    if (ph == 0) {
+        uint32_t d = now - o->anchor;
+        if (d > 3500 * CYC_US && d < 7000 * CYC_US)
+            o->period = o->period ? (o->period * 7 + d) / 8 : d;
+        o->anchor = now;
+    }
+    uint32_t T = o->period ? o->period : 4850 * CYC_US;
+    uint32_t st_ = now;
+    if (ph >= 0 && o->anchor && (uint32_t)(now - o->anchor) < T + 1000 * CYC_US) {
+        st_ = o->anchor + (uint32_t)ph * (T / 4);
+    } else {
+        /* frame from a step outside the normal loop (Wacom's alternate scan path, mostly in hover): continue the
+         * even timeline a quarter period after the previous frame, never later than now (v3.25: raw arrival
+         * times here, ~9 % of frames, made the direction estimate lopsided again) */
+        uint32_t nx = o->last_stamp + T / 4;
+        if (o->last_stamp && (int32_t)(now - nx) >= 0 && (uint32_t)(now - nx) < T)
+            st_ = nx;
+        o->n_realstamp++;
+    }
+    o->stamp[w] = st_;
+    o->last_stamp = st_;
 }
 
 /* calc ring pop: the slot at the read index is the frame being processed */
@@ -211,39 +253,51 @@ static void add_point(volatile struct out *o, uint32_t t, int32_t x, int32_t y, 
     p->y = y;
     o->lvl = lvl;
     o->hn = n + 1;
+#ifdef POINTLOG
+    /* diagnostic: every history point (loop-phase time, x, y, level) into a RAM ring for offline tuning */
+    volatile uint32_t *lg = (volatile uint32_t *)0x20034000;
+    uint32_t k = lg[0] % 2048;
+    lg[1 + 3 * k] = t;
+    lg[2 + 3 * k] = (uint32_t)x;
+    lg[3 + 3 * k] = (uint32_t)y | (uint32_t)lvl << 24 | (o->hn == 1 ? 1u << 31 : 0);
+    lg[0] = lg[0] + 1;
+#endif
 }
 
-/* position at time t: interpolated between the two history points around t, held at the ends */
-static void interp(volatile struct out *o, uint32_t t, int32_t *x, int32_t *y)
+/* position at time t: interpolated between the two history points around t. Past the newest point: with
+ * PREDICT and pred set, continue along the direction of the last loop of Wacom's path (<= PRED_MAX ahead, not in
+ * far hover), else hold the newest point. Returns 1 if it predicted. */
+static int interp_core(volatile struct out *o, uint32_t t, int32_t *x, int32_t *y, int pred)
 {
     uint32_t n = o->hn;
     volatile struct pt *nw = &o->h[(n - 1) % NH];
+    uint32_t lim = n < NH ? n : NH;
     if ((int32_t)(t - nw->t) >= 0) {
         *x = nw->x;
         *y = nw->y;
 #if PREDICT
-        /* past the newest position: continue along the direction of the last >= 2 ms of Wacom's path, at most
-         * PRED_MAX ahead; not in far hover (level 1: coarse-search positions) */
         uint32_t h = t - nw->t;
-        uint32_t lim2 = n < NH ? n : NH;
-        if (o->lvl >= 2 && h <= PRED_MAX) {
-            for (uint32_t k = 2; k <= lim2; k++) {
+        uint32_t T = o->period ? o->period : 4850 * CYC_US;
+        if (pred && o->lvl >= 2 && h <= PRED_MAX) {
+            /* direction from a point about one loop older: every phase of the loop is covered once */
+            for (uint32_t k = 2; k <= lim; k++) {
                 volatile struct pt *m = &o->h[(n - k) % NH];
                 uint32_t span = nw->t - m->t;
-                if (span >= PRED_SPAN && span < 4 * PRED_SPAN) {
+                if (span >= T * 9 / 10 && span < T * 5 / 2) {
                     int32_t dt = (int32_t)span >> 8, f = (int32_t)h >> 8;
                     *x = nw->x + (nw->x - m->x) * f / dt;
                     *y = nw->y + (nw->y - m->y) * f / dt;
-                    o->n_pred++;
-                    return;
+                    if (pred == 1)
+                        o->n_pred++;
+                    return 1;
                 }
             }
         }
 #endif
-        o->n_hold++;
-        return;
+        if (pred == 1)
+            o->n_hold++;
+        return 0;
     }
-    uint32_t lim = n < NH ? n : NH;
     for (uint32_t k = 2; k <= lim; k++) {
         volatile struct pt *a = &o->h[(n - k) % NH], *b = &o->h[(n - k + 1) % NH];
         if ((int32_t)(t - a->t) >= 0) {
@@ -256,12 +310,80 @@ static void interp(volatile struct out *o, uint32_t t, int32_t *x, int32_t *y)
                 *x = a->x + (b->x - a->x) * f / dt;
                 *y = a->y + (b->y - a->y) * f / dt;
             }
-            return;
+            return 0;
         }
     }
     volatile struct pt *old = &o->h[(n - lim) % NH];
     *x = old->x;
     *y = old->y;
+    return 0;
+}
+
+static void interp(volatile struct out *o, uint32_t t, int32_t *x, int32_t *y)
+{
+    if (interp_core(o, t, x, y, 1)) {           /* remember the prediction for grading */
+        volatile struct pe *e = &o->pe[o->pe_w++ % NPE];
+        e->t = t;
+        e->x = *x;
+        e->y = *y;
+        e->valid = 1;
+    }
+}
+
+/* grade predictions whose time is now covered by Wacom's real positions */
+static void grade(volatile struct out *o)
+{
+    uint32_t n = o->hn, lim = n < NH ? n : NH;
+    uint32_t newest = o->h[(n - 1) % NH].t, oldest = o->h[(n - lim) % NH].t;
+    for (int k = 0; k < NPE; k++) {
+        volatile struct pe *e = &o->pe[k];
+        if (!e->valid || (int32_t)(e->t - newest) > 0)
+            continue;
+        e->valid = 0;
+        if ((int32_t)(e->t - oldest) < 0)
+            continue;
+        int32_t x, y;
+        interp_core(o, e->t, &x, &y, 0);
+        uint32_t d = (uint32_t)((e->x > x ? e->x - x : x - e->x) + (e->y > y ? e->y - y : y - e->y));
+        o->perr_n++;
+        o->perr_sum += d;
+        uint32_t b = d < 10 ? 0 : d < 20 ? 1 : d < 40 ? 2 : d < 80 ? 3 : d < 160 ? 4 : d < 320 ? 5 : d < 640 ? 6 : 7;
+        o->perr_hist[b]++;
+    }
+    for (int i = 0; i < NSD; i++) {
+        volatile struct sd *g = &o->sd[i];
+        for (int k = 0; k < NSE; k++) {
+            volatile struct pe *e = &g->pe[k];
+            if (!e->valid || (int32_t)(e->t - newest) > 0)
+                continue;
+            e->valid = 0;
+            if ((int32_t)(e->t - oldest) < 0)
+                continue;
+            int32_t x, y;
+            interp_core(o, e->t, &x, &y, 0);
+            uint32_t d = (uint32_t)((e->x > x ? e->x - x : x - e->x) + (e->y > y ? e->y - y : y - e->y));
+            g->n++;
+            g->sum += d;
+            g->hist[d < 10 ? 0 : d < 20 ? 1 : d < 40 ? 2 : d < 80 ? 3 : d < 160 ? 4 : d < 320 ? 5 : d < 640 ? 6 : 7]++;
+        }
+    }
+}
+
+/* once per in-range tick: what each shadow delay would have sent now (exact where Wacom's path already
+ * covers the target: those grade as 0) */
+static void shadow(volatile struct out *o, uint32_t now)
+{
+    for (int i = 0; i < NSD; i++) {
+        volatile struct sd *g = &o->sd[i];
+        int32_t x, y;
+        uint32_t t = now - (uint32_t)i * 500 * CYC_US;
+        interp_core(o, t, &x, &y, 2);
+        volatile struct pe *e = &g->pe[g->w++ % NSE];
+        e->t = t;
+        e->x = x;
+        e->y = y;
+        e->valid = 1;
+    }
 }
 
 static void put_xy(volatile uint8_t *r, int32_t x, int32_t y)
@@ -306,12 +428,19 @@ uint32_t out_hid(void)
     o->n_ticks++;
     if (o->hn && (int32_t)(now - o->last_rec) > STALE) {
         o->hn = 0;                              /* no in-range record for 12 ms: new history */
+        for (int k = 0; k < NPE; k++)
+            o->pe[k].valid = 0;
+        for (int i = 0; i < NSD; i++)
+            for (int k = 0; k < NSE; k++)
+                o->sd[i].pe[k].valid = 0;
         o->rec_ok = 0;
         o->n_restart++;
     }
     uint32_t cnt = n & 0xF;
     int32_t x, y;
     int single_in = 0;
+    if (o->hn && o->rec_ok)
+        shadow(o, now);
     if (o->hn && o->rec_ok) {                   /* headroom: how old is the newest point right now */
         uint32_t age = (now - o->h[(o->hn - 1) % NH].t) / (500 * CYC_US);
         o->age_hist[age > 15 ? 15 : age]++;
@@ -331,6 +460,7 @@ uint32_t out_hid(void)
         } else {
             add_point(o, match_stamp(o, sx, sy, now), sx, sy, CUR[0x794]);
             o->n_rec++;
+            grade(o);
         }
         o->last_rec = now;
         if (o->hn) {
@@ -416,3 +546,4 @@ static void paced(int k, uint32_t ms)
 
 void out_delay_hid(uint32_t ms) { paced(0, ms); }
 void out_delay_usb(uint32_t ms) { paced(1, ms); }
+_Static_assert(sizeof(struct out) < 0x1000, "engine state must fit 0x2003C000-0x2003CFFF");

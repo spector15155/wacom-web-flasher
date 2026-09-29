@@ -28,9 +28,9 @@ let manualOff = store.get("pth660.manualDisconnect") === "1";
 // ------------------------------------------------------------ names
 
 function fwForVersion(v) {
-  if (v == null) return null;
-  const hv = `0x${hex(v, 4)}`;
-  return firmwareList.find((f) => f.images.some((i) => i.version.toUpperCase() === hv)) ?? null;
+  if (v == null || Number.isNaN(v)) return null;
+  // compare as numbers: the manifest writes "0x0245", and upper-casing it ("0X0245") never matched
+  return firmwareList.find((f) => f.images.some((i) => parseInt(i.version, 16) === v)) ?? null;
 }
 // Firmware this flasher knows: Wacom stock v1.51 / v1.52 and every build in the manifest. A tablet with anything
 // else in a slot (e.g. a newer Wacom update) is untested: warn, keep its original firmware as the fallback, and
@@ -238,8 +238,8 @@ function chooseStep() {
         <span class="t">${esc(fw.title)}${tag}${lag}${where}</span><span class="d">${esc(fw.summary)}</span></label>`;
     }).join("")}</div>
     <p class="note info">Lag = estimated average delay from pen movement to the tablet's USB report (the PC adds its own).
-      All builds measure the pen ~206 times per second. The extra reports of v1.65, v2.45 and v2.99 lie between
-      measured positions; v3.21 / v3.22 also continue the pen's path up to 4 ms past the newest one (short look-ahead).</p>
+      All builds measure the pen ~206 times per second; higher report rates are positions between measured ones
+      (no prediction).</p>
     ${unknownSlots().length ? `<div class="note warn">This tablet has firmware the flasher hasn't been tested with:
       ${unknownNote()}. The builds here were made and tested on one PTH-660 running Wacom v1.51 / v1.52; they should
       work on others (your serial, geometry and calibration live outside the firmware slots and are never written),

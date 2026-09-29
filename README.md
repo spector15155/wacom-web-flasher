@@ -18,8 +18,8 @@ pth660-webflash/
 ├── firmware/                 packages to offer in the UI
 │   ├── manifest.json         list for the UI: title, summary, lag, recommended flag, sha256, per-slot images
 │   ├── pth660_v245_best.pkg                 v2.45, recommended (~730 reports/s, lag ~7 ms est.)
-│   ├── pth660_v322_2000hz.pkg               v3.22, ~2000 even reports/s (2 per USB packet), short look-ahead (lag ~6.5 ms est.)
-│   ├── pth660_v321_1000hz.pkg               v3.21, 1000 even reports/s, short look-ahead (lag ~6.4 ms est.)
+│   ├── pth660_v328_2000hz.pkg               v3.28, ~2000 even reports/s (2 per USB packet), real positions only (lag ~9 ms est.)
+│   ├── pth660_v329_1000hz.pkg               v3.29, 1000 even reports/s, real positions only (lag ~8.5 ms est.)
 │   ├── pth660_v299_1000hz.pkg               v2.99, 1000 even reports/s interpolated from real scans (lag ~9 ms est.)
 │   ├── pth660_v165_600hz.pkg                v1.65, stable fallback (~600 reports/s, lag ~8 ms est.)
 │   └── pth660_stock_v151_v152.pkg           Wacom stock firmware, restore (~200 reports/s, lag ~13 ms est.)
@@ -28,7 +28,7 @@ pth660-webflash/
 │   └── FIRMWARE_HISTORY.md   how v2.45 was reached and what didn't work
 ├── reference/
 │   └── pth660_flash.py       working Python implementation to port (hidapi); status / info / flash / reboot
-└── build/                    rebuild v2.45 / v2.99 / v3.21 / v3.22 from v1.65 (make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
+└── build/                    rebuild v2.45 / v2.99 / v3.28 / v3.29 from v1.65 (make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
     ├── make_frame23.py       v1.65 image -> v2.45 image (per slot)
     ├── make_pkg.py           two slot images -> .pkg
     └── base/                 v1.65 slot A / slot B images
@@ -96,7 +96,7 @@ python build/make_frame23.py --slot b --in build/base/slot_b_v165_600hz.bin --ou
 python build/make_pkg.py --a slot_a_v245.bin --b slot_b_v245.bin --name "v2.45" --out pth660_v245.pkg
 ```
 
-v3.22: `python build/make_frame23.py --slot a --in build/base/slot_a_v165_600hz.bin --out slot_a_v245.bin --version 0x0245`, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v322.bin --version 0x0322 --output --pos output --nos2 --delay-us 0 --predict --double` (same for slot b; needs arm-none-eabi-gcc, path in `GCC_DIR`), then `make_pkg.py`. v3.21: same with `--version 0x0321` and `--pace` instead of `--double`. Both byte-identical to the shipped packages (v3.22 sha256 `f498b4e0...` / `6774c436...`, v3.21 `19784ca8...` / `505c95df...`).
+v3.28: `python build/make_frame23.py --slot a --in build/base/slot_a_v165_600hz.bin --out slot_a_v245.bin --version 0x0245`, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v328.bin --version 0x0328 --output --pos output --nos2 --delay-us 3250 --double` (same for slot b; needs arm-none-eabi-gcc, path in `GCC_DIR`), then `make_pkg.py`. v3.29: same with `--version 0x0329` and `--pace` instead of `--double`. Both byte-identical to the shipped packages (v3.28 sha256 `30fbec23...` / `bc2ff81d...`, v3.29 `06454a98...` / `09e37e29...`).
 
 v2.99: `python build/make_cycles.py --in build/base/slot_a_v165_600hz.bin --slot a --k 0 --upsample 6 --perscan --version 0x0299 --out slot_a_v299.bin` (same for slot b), then `make_pkg.py` as above. Byte-identical to the shipped v2.99 (sha256 `670d8539...` / `218d94dc...`).
 

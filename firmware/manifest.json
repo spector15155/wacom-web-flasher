@@ -35,58 +35,58 @@
       "lag": "~7 ms"
     },
     {
-      "file": "pth660_v322_2000hz.pkg",
-      "size": 679149,
-      "sha256": "aa969ce4d71a1d92a76bc870b3ee3024740fea36e3d0edd37cac6675adfec03f",
-      "id": "v3.22",
-      "title": "v3.22 (2000 Hz, low latency)",
+      "file": "pth660_v328_2000hz.pkg",
+      "size": 681229,
+      "sha256": "5373b0c89a685a7127821c6b10b89147bef006816951ec53383104e1cad005db",
+      "id": "v3.28",
+      "title": "v3.28 (2000 Hz, even)",
       "recommended": false,
       "kind": "custom",
-      "summary": "~1900-2000 reports/s: two reports every 1 ms, sent together in one USB packet (the PC splits them). Stock pen scanning and Wacom's own processing exactly as v2.45 (stock pressure, side buttons, hover, filters), with a new output stage written in C that sends evenly spaced reports on the path of Wacom's own positions (each re-timed by when it was measured). No fixed delay: when Wacom's newest position is a few ms old, the report continues along the pen's current direction for at most 4 ms (not in far hover), so lag is lower than v2.45; sudden stops or sharp turns can overshoot slightly (~0.4 mm at a fast stroke) for a few ms. Extra smoothing only where Wacom's output is rough: the top/left edge strip at slow speed and a spike filter at the limit of hover height.",
+      "summary": "~1900-2000 reports/s: two reports every 1 ms, sent together in one USB packet (the PC splits them). Stock pen scanning and Wacom's own processing exactly as v2.45 (stock pressure, side buttons, hover, filters), with a new output stage written in C that sends evenly spaced reports on the path of Wacom's own positions. No prediction: every report lies between two positions Wacom has already delivered (a fixed delay keeps them available), so there is no overshoot. The four positions of each ~4.85 ms scan loop are placed evenly in time, so the cursor moves at a steady speed within the loop. Extra smoothing only where Wacom's output is rough: the top/left edge strip at slow speed and a spike filter at the limit of hover height. The price of the even timing is ~2 ms more lag than v2.45.",
       "images": [
         {
           "slot": "a",
-          "version": "0x0322",
+          "version": "0x0328",
           "base": "0x08040000",
-          "size": 338944,
-          "sha256": "f498b4e0a13fbe877ffb88a79d5f1d9039b950c21238837fbce590fd0c9eef9d"
+          "size": 339968,
+          "sha256": "30fbec2305f8ccf47a3ef87a57b9c66728595257787e59681587ba349464de34"
         },
         {
           "slot": "b",
-          "version": "0x0322",
+          "version": "0x0328",
           "base": "0x080A0000",
-          "size": 339456,
-          "sha256": "6774c43650b7be7bc32754a547f2a43bd27ed0719df58bff2418ae72f9e7890a"
+          "size": 340480,
+          "sha256": "bc2ff81dae1f223e4f00baeb451b7aefd3aefe73b679a9e2a728fb7f39207420"
         }
       ],
-      "lag": "~6.5 ms"
+      "lag": "~9 ms"
     },
     {
-      "file": "pth660_v321_1000hz.pkg",
-      "size": 679121,
-      "sha256": "d260869d09be6fa5a6e3829f92191faca5db2ab5b8c68a5a03685006f2674acb",
-      "id": "v3.21",
-      "title": "v3.21 (1000 Hz, low latency)",
+      "file": "pth660_v329_1000hz.pkg",
+      "size": 680689,
+      "sha256": "6ee2c59e242baa794240a7eb12a53feab19c3fa6170a4bc7c526d57b304898e6",
+      "id": "v3.29",
+      "title": "v3.29 (1000 Hz, even)",
       "recommended": false,
       "kind": "custom",
-      "summary": "1000 reports/s, one every 1 ms. Stock pen scanning and Wacom's own processing exactly as v2.45 (stock pressure, side buttons, hover, filters), with a new output stage written in C that sends evenly spaced reports on the path of Wacom's own positions (each re-timed by when it was measured). No fixed delay: when Wacom's newest position is a few ms old, the report continues along the pen's current direction for at most 4 ms (not in far hover), so lag is lower than v2.45; sudden stops or sharp turns can overshoot slightly (~0.4 mm at a fast stroke) for a few ms. Extra smoothing only where Wacom's output is rough: the top/left edge strip at slow speed and a spike filter at the limit of hover height.",
+      "summary": "1000 reports/s, one every 1 ms. Stock pen scanning and Wacom's own processing exactly as v2.45 (stock pressure, side buttons, hover, filters), with a new output stage written in C that sends evenly spaced reports on the path of Wacom's own positions. No prediction: every report lies between two positions Wacom has already delivered (a fixed delay keeps them available), so there is no overshoot. The four positions of each ~4.85 ms scan loop are placed evenly in time, so the cursor moves at a steady speed within the loop. Extra smoothing only where Wacom's output is rough: the top/left edge strip at slow speed and a spike filter at the limit of hover height. The price of the even timing is ~2 ms more lag than v2.45.",
       "images": [
         {
           "slot": "a",
-          "version": "0x0321",
+          "version": "0x0329",
           "base": "0x08040000",
-          "size": 338944,
-          "sha256": "19784ca87df3f3308d7a18df9e3fa254d76b155e3b5c26a37e251a0d1e2b82c5"
+          "size": 339712,
+          "sha256": "06454a98f8814c74d33de13fe9dc8150a40ad64d5d85b00eebdcf67f84dfbdb7"
         },
         {
           "slot": "b",
-          "version": "0x0321",
+          "version": "0x0329",
           "base": "0x080A0000",
-          "size": 339456,
-          "sha256": "505c95df196d03b3afd6d7fd555eed58bf654e3b28c94338e4c45e212fd048e8"
+          "size": 340224,
+          "sha256": "09e37e29940788025c5150e1cd76348ccd307279589e3d17069e63864e08c44a"
         }
       ],
-      "lag": "~6.4 ms"
+      "lag": "~8.5 ms"
     },
     {
       "file": "pth660_v299_1000hz.pkg",
