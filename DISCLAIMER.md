@@ -11,7 +11,12 @@ This is an **unofficial, community-made tool** and **unofficial firmware** for t
   match, nothing is switched over and your tablet keeps its current firmware.
 - You can **back up both slots** before any change and restore that backup later.
 - Wacom's original firmware is included, so you can always go back to stock.
-- Each build here was tested on a real tablet by the author.
+- Each build here was flashed and used on a real tablet by the author. So far that is **one PTH-660**
+  (Intuos Pro M, running Wacom firmware v1.51 / v1.52 before flashing). Other PTH-660s should behave the
+  same: the unit's serial number, geometry and calibration data live outside the firmware slots and are never
+  written. But no other unit has been confirmed yet.
+- If your tablet runs firmware the flasher doesn't know (for example a newer Wacom update), it tells you,
+  saves a backup first, and only installs one slot, so your original firmware stays on the tablet as a fallback.
 
 ## What we can't promise
 
@@ -22,6 +27,12 @@ starting at all. Custom firmware may also affect your warranty.
 **By using this tool you accept that you do so at your own risk.** The author can't be held responsible
 for any damage, data loss, bricked tablets or warranty issues that result from using it. If you're not
 comfortable with that, please don't flash, and there's no shame in that: the stock firmware works fine.
+
+## Other tablets
+
+If you flash a PTH-660 other than the author's, please report how it went (the tablet's original firmware
+version from the technical log, which build you installed, and whether pen, pressure, buttons and hover work).
+That is how "should work" becomes "works".
 
 ## If something goes wrong
 

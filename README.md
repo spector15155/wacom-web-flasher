@@ -34,6 +34,18 @@ pth660-webflash/
     └── base/                 v1.65 slot A / slot B images
 ```
 
+
+## Tested devices
+
+So far: **one** Wacom Intuos Pro M (PTH-660), the author's, originally running Wacom firmware v1.51 (slot A) /
+v1.52 (slot B). Every build in `firmware/` was flashed and used on it.
+
+Other PTH-660s are expected to work: the per-unit data (serial number and geometry in the config sector at
+0x08010000, the unidentified per-unit block at 0x0800C000) is outside the firmware slots, the shipped images
+don't contain any of it, and the flasher refuses to write anything but the target slot. Not yet confirmed,
+though. When a slot holds firmware the flasher doesn't know (anything other than stock v1.51 / v1.52 or a build
+from `firmware/`), the web app warns, makes the backup mandatory, disables "install on both slots" (the original
+firmware stays as the fallback) and asks for an extra acknowledgement. Reports from other units are welcome.
 ## Requirements
 
 **To flash (end user):** nothing to install.

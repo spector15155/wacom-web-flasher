@@ -85,6 +85,11 @@
       <p>We've built in every safeguard we could: new firmware only goes into the slot the tablet isn't running,
         every write is read back and checked before the tablet switches to it, you can back up both slots first,
         and Wacom's original firmware is included so you can always go back.</p>
+      <p>Tested so far on <b>one</b> PTH-660 (the author's, originally on Wacom firmware v1.51 / v1.52), with every build
+        here flashed and used. Other units should behave the same, since the serial number, geometry and calibration
+        data are stored outside the firmware slots and are never written, but none has been confirmed yet. If your
+        tablet runs firmware the flasher doesn't know, it warns you, requires a backup and keeps your original
+        firmware in one slot as a fallback. Please report how it went on your tablet.</p>
       <p>Still, flashing firmware always carries some risk, and custom firmware may affect your warranty.
         <b>You flash at your own risk:</b> the author can't be held responsible for damaged or bricked tablets,
         lost data or warranty issues. If that doesn't sit right with you, it's completely fine not to flash;

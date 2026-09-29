@@ -32,6 +32,19 @@ function fwForVersion(v) {
   const hv = `0x${hex(v, 4)}`;
   return firmwareList.find((f) => f.images.some((i) => i.version.toUpperCase() === hv)) ?? null;
 }
+// Firmware this flasher knows: Wacom stock v1.51 / v1.52 and every build in the manifest. A tablet with anything
+// else in a slot (e.g. a newer Wacom update) is untested: warn, keep its original firmware as the fallback, and
+// require a backup plus an extra acknowledgement before writing.
+function knownVersion(v) {
+  return v != null && !Number.isNaN(v) && fwForVersion(v) != null;
+}
+function unknownSlots() {
+  return info ? ["a", "b"].filter((s) => !knownVersion(info.versions[s])) : [];
+}
+function unknownNote() {
+  const u = unknownSlots();
+  return u.map((s) => `slot ${s.toUpperCase()} (${esc(versionName(info.versions[s]))})`).join(" and ");
+}
 function verLabel(v) {
   const fw = fwForVersion(v);
   return fw ? `${versionName(v)} · ${fw.title.replace(/^v[\d.]+\s*/, "").replace(/^\((.*)\)$/, "$1")}` : versionName(v);
@@ -99,6 +112,10 @@ async function refresh() {
     info = { running, versions, idle: st.ok };
     render();
     log(`running slot ${running?.toUpperCase()}, slot A ${versionName(versions.a)}, slot B ${versionName(versions.b)}, status 0x${hex(st.s1, 2)}`);
+    const unk = unknownSlots();
+    if (firmwareList.length && unk.length)
+      log(`note: ${unk.map((x) => `slot ${x.toUpperCase()} ${versionName(versions[x])}`).join(", ")} is firmware this flasher ` +
+          `hasn't been tested with (untested tablet: backup required, both-slot install disabled)`);
     return true;
   } catch (e) {
     log(`status failed: ${e.name}: ${e.message}`);
@@ -223,12 +240,17 @@ function chooseStep() {
     <p class="note info">Lag = estimated average delay from pen movement to the tablet's USB report (the PC adds its own).
       All builds measure the pen ~206 times per second. The extra reports of v1.65, v2.45 and v2.99 lie between
       measured positions; v3.21 / v3.22 also continue the pen's path up to 4 ms past the newest one (short look-ahead).</p>
-    <label class="check"><input type="checkbox" id="opt-both" ${wz.both ? "checked" : ""}>
+    ${unknownSlots().length ? `<div class="note warn">This tablet has firmware the flasher hasn't been tested with:
+      ${unknownNote()}. The builds here were made and tested on one PTH-660 running Wacom v1.51 / v1.52; they should
+      work on others (your serial, geometry and calibration live outside the firmware slots and are never written),
+      but that isn't confirmed yet. To keep your original firmware as a fallback, only one slot is installed.</div>` : ""}
+    <label class="check"><input type="checkbox" id="opt-both" ${wz.both && !unknownSlots().length ? "checked" : ""}
+      ${unknownSlots().length ? "disabled" : ""}>
       <span>Install on <b>both slots</b>. Otherwise only slot ${running === "a" ? "B" : "A"} is replaced and your current
       firmware (slot ${running.toUpperCase()}, ${esc(versionName(info.versions[running]))}) stays as a fallback.</span></label>`;
     foot([{ label: "Next", cls: "primary", onClick: () => {
       wz.fw = firmwareList[Number(body.querySelector("input[name=fw]:checked").value)];
-      wz.both = $("opt-both").checked;
+      wz.both = $("opt-both").checked && !unknownSlots().length;
       wz.step = "review";
       showStep();
     } }]);
@@ -356,8 +378,12 @@ function newVersions() {
   return v;
 }
 
+let untestedAck = false; // acknowledgement for a tablet with firmware the flasher doesn't know, once per session
+
 function reviewStep() {
   if (wz.backupFirst === undefined) wz.backupFirst = !backedUp;
+  const untested = wz.kind === "install" && unknownSlots().length > 0;
+  if (untested && !backedUp) wz.backupFirst = true;             // untested tablet: backup is not optional
   const nv = newVersions();
   const steps = plannedSteps();
   const reboots = steps.filter((s) => s.startsWith("Reboot")).length;
@@ -377,19 +403,29 @@ function reviewStep() {
     <div class="note info">Every write is read back and compared before the slot is made bootable. If anything
       fails, the tablet keeps booting the firmware it has now, and you can simply run this again.</div>
     <div class="backup-opt">
-      <label class="check"><input type="checkbox" id="opt-backup" ${wz.backupFirst ? "checked" : ""}>
+      <label class="check"><input type="checkbox" id="opt-backup" ${wz.backupFirst ? "checked" : ""}
+        ${untested && !backedUp ? "disabled" : ""}>
         <span><b>Save a backup of both slots first</b> (recommended). Downloads a <code>.pkg</code> with the firmware that's on
         the tablet now, before anything is written; restore it any time with <i>Restore from file</i>. Adds a few seconds.</span></label>
       ${backedUp ? `<div class="note ok">Backup already saved in this session: <code>${esc(backedUp)}</code></div>` : ""}
     </div>
     <div class="note warn">Keep the tablet plugged in and this tab open until it says Done.</div>
+    ${untested ? `<label class="check consent"><input type="checkbox" id="opt-untested" ${untestedAck ? "checked" : ""}>
+      <span>This tablet runs firmware the flasher hasn't been tested with (${unknownNote()}). I understand the new
+      firmware hasn't been confirmed on it yet, and that the backup saved first is how I get my original firmware
+      back.</span></label>` : ""}
     <label class="check consent"><input type="checkbox" id="opt-consent" ${consent ? "checked" : ""}>
       <span>I understand this is <b>unofficial firmware</b> and that I'm flashing <b>at my own risk</b>. The author
       isn't responsible if something goes wrong with my tablet. <a href="#about" class="about-open">Read more</a></span></label>`;
   document.querySelectorAll(".about-open").forEach((a) => (a.onclick = openAbout));
+  const goOk = () => consent && !missing && (!untested || untestedAck);
   $("opt-consent").onchange = (e) => {
     consent = e.target.checked;
-    $("go").disabled = !consent || missing;
+    $("go").disabled = !goOk();
+  };
+  if (untested) $("opt-untested").onchange = (e) => {
+    untestedAck = e.target.checked;
+    $("go").disabled = !goOk();
   };
   $("opt-backup").onchange = (e) => {
     wz.backupFirst = e.target.checked;
@@ -420,7 +456,7 @@ function reviewStep() {
     { label: "Back", cls: "ghost", onClick: () => { wz.step = "choose"; showStep(); } },
     "spacer",
     { label: "Dry run", cls: "ghost", onClick: () => run(job(true)) },
-    { label: wz.kind === "install" ? "Install" : "Restore", cls: "danger", id: "go", disabled: missing || !consent,
+    { label: wz.kind === "install" ? "Install" : "Restore", cls: "danger", id: "go", disabled: !goOk(),
       onClick: () => run(job(false)) },
   ]);
 }
