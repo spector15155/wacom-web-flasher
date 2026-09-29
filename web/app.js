@@ -216,9 +216,13 @@ function chooseStep() {
       const installed = ["a", "b"].filter((s) => fw.images.some((im) => parseInt(im.version, 16) === info.versions[s]));
       const where = installed.length ? `<span class="tag">in slot ${installed.map((s) => s.toUpperCase()).join(" + ")}</span>` : "";
       const checked = (wz.fw ? wz.fw === fw : fw.recommended) ? "checked" : "";
+      const lag = fw.lag ? `<span class="tag" title="Estimated average delay from pen movement to the USB report (PC not included)">lag ${esc(fw.lag)}</span>` : "";
       return `<label class="opt"><input type="radio" name="fw" value="${i}" ${checked}>
-        <span class="t">${esc(fw.title)}${tag}${where}</span><span class="d">${esc(fw.summary)}</span></label>`;
+        <span class="t">${esc(fw.title)}${tag}${lag}${where}</span><span class="d">${esc(fw.summary)}</span></label>`;
     }).join("")}</div>
+    <p class="note info">Lag = estimated average delay from pen movement to the tablet's USB report (the PC adds its own).
+      All builds measure the pen ~206 times per second. The extra reports of v1.65, v2.45 and v2.99 lie between
+      measured positions; v3.21 / v3.22 also continue the pen's path up to 4 ms past the newest one (short look-ahead).</p>
     <label class="check"><input type="checkbox" id="opt-both" ${wz.both ? "checked" : ""}>
       <span>Install on <b>both slots</b>. Otherwise only slot ${running === "a" ? "B" : "A"} is replaced and your current
       firmware (slot ${running.toUpperCase()}, ${esc(versionName(info.versions[running]))}) stays as a fallback.</span></label>`;

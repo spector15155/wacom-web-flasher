@@ -116,6 +116,131 @@ lit_ring: .word {ring}
 lit_arr:  .word {arr}
 {stamp_lits}
 """
+# --nopushx: extra-cycle frames never reach the calc ring (plan R3: Wacom's calc sees only
+# the stock loop, so pressure / buttons / contact / hover stay stock). The extra S1-done
+# event runs the stock frame handler (scan-side tracking still sees every scan) with NPX
+# set; the ring push wrapper drops any push while NPX is set. Extra S2 events use the
+# plain S2 handler (no v1.65 push wrapper).
+NPX = 0x2003F7E0
+EV_FNP = """
+    push {{r4, lr}}
+    push {{r0, r1, r2}}
+    bl   #{arm_s1}
+    pop  {{r0, r1, r2}}
+    ldr  r4, lit_npx
+    movs r3, #1
+    strb r3, [r4]
+    bl   #{frame}
+    movs r3, #0
+    strb r3, [r4]
+    ldr  r3, [r4, #4]
+    adds r3, #1
+    str  r3, [r4, #4]
+    pop  {{r4, pc}}
+    .align 2
+lit_npx: .word {npx}
+"""
+# --nopushx also keeps the stock frames' S2 data post-P: the extra cycle's S2 handler
+# overwrites the work frame's S2 blocks (X +0x168.. incl. entries and the decoded pen word
+# at +0x39E, Y .. +0x5E5 incl. +0x5DD), and the next stock frames (23, 24) are built from
+# it, so they carried extra-cycle S2 (v2.94: pressure stuck at the bogus 533). Stock 29
+# saves the block after its handler; the extra 29' restores it after the plain handler.
+S2KEEP = 0x2003C800          # 0x47E B block + u32 valid at +0x480 (stock references
+                             # 0x2003E000.. -> v2.95 IWDG restarts; nothing references 0x2003C...)
+S2KEEP_N = 0x47E
+S2_SAVE = """
+    push {{r4, lr}}
+    mov  r4, r2
+    bl   #{orig}
+    push {{r0, r1}}
+    ldr  r0, lit_keep
+    addw r1, r4, #0xbaf
+    movw r2, #{n}
+    bl   #{memcpy}
+    ldr  r0, lit_keep
+    movs r1, #1
+    str.w r1, [r0, #0x480]
+    pop  {{r0, r1}}
+    pop  {{r4, pc}}
+    .align 2
+lit_keep: .word {keep}
+"""
+S2_REST = """
+    push {{r4, lr}}
+    mov  r4, r2
+    bl   #{orig}
+    push {{r0, r1}}
+    ldr  r1, lit_keep
+    ldr.w r0, [r1, #0x480]
+    cmp  r0, #1
+    bne  skip
+    addw r0, r4, #0xbaf
+    movw r2, #{n}
+    bl   #{memcpy}
+skip:
+    pop  {{r0, r1}}
+    pop  {{r4, pc}}
+    .align 2
+lit_keep: .word {keep}
+"""
+# --btnhold N (with --nopushx): v2.95 recording: a held side button reads on for 3 reports,
+# off for 2, every loop (the two stock frames after the extra cycle lose it). On the calc's
+# mail copy only (r6; r8 untouched): a nonzero button value is kept through up to N results
+# that read 0; out of range (level 0) clears it. State BTNHOLD: +0 held bits, +1 countdown.
+BTNHOLD = 0x2003F7F0
+BTNHOLD_HOOK = """
+    push {{r4, lr}}
+    ldr  r4, lit_bh
+    ldrb.w r0, [r6, #0x794]
+    cmp  r0, #0
+    bne  inr
+    strb r0, [r4, #1]
+    b    out
+inr:
+    ldrb r0, [r6, #2]
+    ands r1, r0, #7
+    beq  zero
+    strb r1, [r4]
+    movs r2, #{n}
+    strb r2, [r4, #1]
+    b    out
+zero:
+    ldrb r2, [r4, #1]
+    cmp  r2, #0
+    beq  out
+    subs r2, #1
+    strb r2, [r4, #1]
+    ldrb r1, [r4]
+    bic  r0, r0, #7
+    orrs r0, r1
+    strb r0, [r6, #2]
+out:
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r4, pc}}
+    .align 2
+lit_bh: .word {bh}
+"""
+PUSH_TRAMP_NPX = """
+    mov  r1, r0
+    push {{r4, r5, lr}}
+    b.w  #{cont}
+"""
+PUSH_GATE_NPX = """
+    ldr  r3, lit_npx
+    ldrb r2, [r3]
+    cmp  r2, #0
+    bne  drop
+    b.w  #{tramp}
+drop:
+    ldr  r2, [r3, #8]
+    adds r2, #1
+    str  r2, [r3, #8]
+    movs r0, #0
+    bx   lr
+    .align 2
+lit_npx: .word {npx}
+"""
 ACT_S2 = """
     push {{r4, r5, r6, lr}}
     mov  r4, r0
@@ -1121,6 +1246,75 @@ MAILTS = """
     .align 2
 lit_ups: .word {ups}
 """
+# --perscan (with --k 0 --upsample): the mail copy (r6; the calc's own struct r8 is never
+# written) gets Wacom's per-scan position (r8+0xFA4 - 2800 / r8+0x10D8 - 2840: changes
+# exactly on fresh S1 results, before the 4-result moving average) instead of the smoothed
+# output, while the pen is tracked (level >= 2). The upsampler then interpolates between
+# real scans only (history takes a point only when the position changed, PS_DEDUPE).
+PERSCAN = """    ldrb.w r0, [r8, #0x794]
+    cmp  r0, #2
+    blo  psk
+    ldr.w r0, [r8, #0xfa4]
+    subw r0, r0, #2800
+    cmp  r0, #0
+    it   lt
+    movlt r0, #0
+    str  r0, [r6, #0x1c]
+    movw r1, #0x10d8
+    ldr.w r0, [r8, r1]
+    subw r0, r0, #2840
+    cmp  r0, #0
+    it   lt
+    movlt r0, #0
+    str  r0, [r6, #0x54]
+psk:
+"""
+PS_HIST_OLD = """    strb r0, [r5, #0x12]
+    ldr  r0, [r5, #8]
+    and  r1, r0, #3
+    add.w r1, r1, r1, lsl #1
+    add.w r1, r5, r1, lsl #2
+    ldr  r2, [r5, #0x14]
+    str  r2, [r1, #0x70]
+    ldr  r2, [r7, #0x1c]
+    str  r2, [r1, #0x74]
+    ldr  r2, [r7, #0x54]
+    str  r2, [r1, #0x78]
+    adds r0, #1
+    str  r0, [r5, #8]
+    movs r0, #1
+    strb r0, [r5, #0x10]
+"""
+PS_HIST_NEW = """    strb r0, [r5, #0x12]
+    ldr  r0, [r5, #8]
+    subs r1, r0, #1
+    and  r1, r1, #3
+    add.w r1, r1, r1, lsl #1
+    add.w r1, r5, r1, lsl #2
+    ldr  r2, [r1, #0x74]
+    ldr  r3, [r7, #0x1c]
+    cmp  r2, r3
+    bne  psnew
+    ldr  r2, [r1, #0x78]
+    ldr  r3, [r7, #0x54]
+    cmp  r2, r3
+    beq  psdup
+psnew:
+    and  r1, r0, #3
+    add.w r1, r1, r1, lsl #1
+    add.w r1, r5, r1, lsl #2
+    ldr  r2, [r5, #0x14]
+    str  r2, [r1, #0x70]
+    ldr  r2, [r7, #0x1c]
+    str  r2, [r1, #0x74]
+    ldr  r2, [r7, #0x54]
+    str  r2, [r1, #0x78]
+    adds r0, #1
+    str  r0, [r5, #8]
+psdup:
+    movs r0, #1
+    strb r0, [r5, #0x10]
+"""
 # --k 0 (no mail hold): replaces "ldr r0, [r5]; mov r1, r6" before the calc's put
 MAILTS_PUT = MAILTS.replace("    bx   lr\n", "    ldr  r0, [r5]\n    mov  r1, r6\n    bx   lr\n", 1)
 # --k 0: calc ring pop, stamp of the slot about to be popped
@@ -2009,6 +2203,1303 @@ done:
     .align 2
 lit_cnt: .word {cnt}
 """
+# --pack: full-speed USB carries one interrupt packet per 1 ms frame, so a report
+# per packet caps the rate at 1000/s. Report 0x10 is 27 B and the endpoint takes
+# 64 B, so the sender puts two pen reports into one packet when two are queued;
+# the host HID class splits a transfer holding several reports. The pen entry of
+# the sender table points at PACKBUF instead of the stock 27 B buffer.
+# FAST: +0x40 packets with 2 reports, +0x44 with 1, +0x48 HID extra iterations,
+# +0x4C consecutive-extra byte, +0x60 frame23 state (pushed, skipped, coil lists).
+FAST = 0x2003F800
+PACKBUF = FAST
+USB_PACK = """
+    ldr  r0, [r4, #4]
+    ldr  r1, lit_pbuf
+    cmp  r0, r1
+    bne  send1
+    ldrb r0, [r1]
+    cmp  r0, #0x10
+    bne  send1
+    mov  r0, sp
+    ldr  r1, [r5]
+    movs r2, #0
+    bl   #{get}
+    ldr  r0, [sp]
+    cmp  r0, #0x20
+    bne  send1c
+    ldr  r6, [sp, #4]
+    ldr  r0, lit_pbuf
+    adds r0, #27
+    mov  r1, r6
+    movs r2, #27
+    bl   #{memcpy}
+    ldr  r0, [r5]
+    mov  r1, r6
+    bl   #{free}
+    ldr  r0, lit_pbuf
+    movs r1, #54
+    bl   #{send}
+    ldr  r1, lit_pbuf
+    ldr  r0, [r1, #0x40]
+    adds r0, #1
+    str  r0, [r1, #0x40]
+    b    counted
+send1c:
+    ldr  r1, lit_pbuf
+    ldr  r0, [r1, #0x44]
+    adds r0, #1
+    str  r0, [r1, #0x44]
+send1:
+    ldr  r0, [r4, #4]
+    ldr  r1, [r4, #8]
+    bl   #{send}
+counted:
+"""
+USB_SEND_TAIL = """
+    ldr  r0, [r4, #4]
+    ldr  r1, [r4, #8]
+    bl   #{send}
+"""
+# --pack without --usbpush: the task's per-tick ready checks send (at most one
+# packet per tick, as stock), the DataIn callback is left alone
+USB_TASKSEND_TICK = """
+    push {{r4, lr}}
+    bl   #{usbsend}
+    movs r0, #0
+    pop  {{r4, pc}}
+"""
+# --hidmore: the HID task takes one calc result per 1 ms iteration (1000/s cap).
+# Replaces its loop-end osDelay(1): while calc results are waiting (FreeRTOS
+# queue uxMessagesWaiting, handle = [mailq cb + 4]), run up to 2 more
+# iterations at once, then sleep as before.
+HIDMORE = """
+    ldr  r0, lit_mq
+    ldr  r0, [r0]
+    cmp  r0, #0
+    beq  sleep
+    ldr  r0, [r0, #4]
+    cmp  r0, #0
+    beq  sleep
+    ldr  r0, [r0, #0x38]
+    cmp  r0, #0
+    beq  sleep
+    ldr  r2, lit_st
+    ldrb r1, [r2, #0x4c]
+    cmp  r1, #2
+    bhs  sleep2
+    adds r1, #1
+    strb r1, [r2, #0x4c]
+    ldr  r1, [r2, #0x48]
+    adds r1, #1
+    str  r1, [r2, #0x48]
+    movs r0, #0
+    bx   lr
+sleep:
+    ldr  r2, lit_st
+sleep2:
+    movs r1, #0
+    strb r1, [r2, #0x4c]
+    movs r0, #1
+    b.w  #{delay}
+    .align 2
+lit_mq: .word {mq}
+lit_st: .word {st}
+"""
+# --frame23: the set-1 pass-a frame (stock step 23 and the first record of every
+# extra cycle; tools/make_frame23.py, v2.45), pushed only when the coil window
+# (register image coil lists) equals the one of the previous pass a. With
+# --hold it is tagged stale, so the raw hold gives it the last real pressure.
+F23_STAGE = 0x2001B1FC
+F23_EXTRA = 0x2001B7E5
+F23_IMG = 0x2001D358
+F23_RANGES = ((0x17, 0x24), (0x4C, 0x59))
+FRAME23 = """
+    push {{r4, r5, r6, r7, lr}}
+    mov  r4, r2
+    bl   #{orig}
+    subs r3, r0, #1
+    cmp  r3, #1
+    bhi.w out
+    push {{r0, r1}}
+    ldr  r5, lit_img
+    ldr  r6, lit_st
+    movs r7, #0
+{compare}
+    cmp  r7, #0
+    bne.w skip
+    ldr  r0, lit_stage
+    movs r1, #3
+    strb.w r1, [r0, #0x709]
+    addw r1, r4, #0xa47
+    movw r2, #0x605
+    bl   #{memcpy}
+    ldr  r0, lit_extra
+    ldr  r1, lit_pblock
+    movs r2, #0x1c
+    bl   #{memcpy}
+{tag}
+    ldr  r0, lit_stage
+    bl   #{push}
+    ldr  r0, [r6]
+    adds r0, #1
+    str  r0, [r6]
+    b.w  done
+skip:
+    ldr  r0, [r6, #4]
+    adds r0, #1
+    str  r0, [r6, #4]
+done:
+    pop  {{r0, r1}}
+out:
+    pop  {{r4, r5, r6, r7, pc}}
+    .align 2
+lit_stage:  .word {stage}
+lit_extra:  .word {extra}
+lit_pblock: .word {pblock}
+lit_img:    .word {img}
+lit_st:     .word {st}
+{taglits}
+"""
+F23_BYTE = """    ldrb r0, [r5, #{i}]
+    ldrb r1, [r6, #{s}]
+    cmp  r0, r1
+    it   ne
+    movne r7, #1
+    strb r0, [r6, #{s}]
+"""
+F23_TAG = """    ldr  r3, lit_ring
+    ldrh r3, [r3]
+    ldr  r2, lit_arr
+    movs r1, #1
+    strb r1, [r2, r3]"""
+F23_TAGLITS = """lit_ring:   .word {ring}
+lit_arr:    .word {arr}"""
+# --coillog (diagnostic, observe only): at the calc's mail put, log the result position
+# (r8+0x1C X, r8+0x54 Y, u32) with the input frame it came from (r8+0x798: X block
+# header+profile +0..0x74, Y block +0xAA..0x11E) into a 64 x 256 B ring.
+# Entry: +0 seq, +4 X, +8 Y, +0xC [r8] (pressure/buttons), +0x10 X block, +0x88 Y block.
+# Sequence counter u32 at COILLOG_IDX. Replaces "ldr r0, [r5]; mov r1, r6" before the put.
+COILLOG = 0x20034000
+COILLOG_IDX = FAST + 0x80
+COILLOG_HOOK = """
+    push {{r4, lr}}
+    ldr  r4, lit_idx
+    ldr  r0, [r4]
+    adds r0, #1
+    str  r0, [r4]
+    and  r1, r0, #63
+    ldr  r4, lit_log
+    add.w r4, r4, r1, lsl #8
+    str  r0, [r4]
+    ldr.w r0, [r8, #0x1c]
+    str  r0, [r4, #4]
+    ldr.w r0, [r8, #0x54]
+    str  r0, [r4, #8]
+    ldr.w r0, [r8]
+    str  r0, [r4, #12]
+    add.w r0, r4, #0x10
+    add.w r1, r8, #0x798
+    movs r2, #0x75
+    bl   #{memcpy}
+    add.w r0, r4, #0x88
+    addw r1, r8, #0x842
+    movs r2, #0x75
+    bl   #{memcpy}
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r4, pc}}
+    .align 2
+lit_idx: .word {idx}
+lit_log: .word {log}
+"""
+# --framelog (diagnostic, observe only): like --coillog but the whole 0x605 B input frame,
+# for 3 consecutive calc results out of every 128 (so the reader can keep up), in a
+# 16 x 0x800 B ring at COILLOG. State: +0 entries logged, +4 results seen.
+# Entry: +0 seq (written last), +4 X, +8 Y, +0xC [r8], +0x10 frame, +0x620 result number.
+FRAMELOG_HOOK = """
+    push {{r4, lr}}
+    ldr  r1, lit_idx
+    ldr  r0, [r1, #4]
+    adds r0, #1
+    str  r0, [r1, #4]
+    and  r2, r0, #127
+    cmp  r2, #3
+    bhs.w skip
+    ldr  r0, [r1]
+    adds r0, #1
+    and  r2, r0, #15
+    ldr  r4, lit_log
+    add.w r4, r4, r2, lsl #11
+    movs r2, #0
+    str  r2, [r4]
+    ldr.w r2, [r8, #0x1c]
+    str  r2, [r4, #4]
+    ldr.w r2, [r8, #0x54]
+    str  r2, [r4, #8]
+    ldr.w r2, [r8]
+    str  r2, [r4, #12]
+    add.w r0, r4, #0x10
+    add.w r1, r8, #0x798
+    movw r2, #0x605
+    bl   #{memcpy}
+    ldr  r1, lit_idx
+    ldr  r2, [r1, #4]
+    str.w r2, [r4, #0x620]
+    ldr  r0, [r1]
+    adds r0, #1
+    str  r0, [r4]
+    str  r0, [r1]
+skip:
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r4, pc}}
+    .align 2
+lit_idx: .word {idx}
+lit_log: .word {log}
+"""
+# --ownpos: our own position from the raw coil profiles, sent only when measured.
+# On v1.65 cadence the X/Y coil profiles (input frame r8+0x798: X header +0 / coil
+# window start +0x0C (the measured window; +0x0D can already name the next one) /
+# 10 entries +0x11, Y +0xAA / +0xB6 / +0xBB, entry stride 10, s16
+# amplitude first) change once per scan loop; Wacom's other results are interpolated.
+# Hook replaces "ldr r0, [r5]; mov r1, r6" before the calc mail put (needs --safemail,
+# whose put guard skips NULL):
+#   level (r8+0x794) < 2 or just entered tracking      -> pass unchanged
+#   profiles changed (fresh measurement)                -> X/Y = own, send
+#   not fresh, level changed (touch down/up)            -> X/Y = last own, send
+#   otherwise                                           -> free the block, put NULL
+# own = 1683 * (start + k) + 1683 * (r - l) / (2 (2c - l - r)) + offset,
+# k = argmax of entries 1..8 (fit on logged data: X -1190, Y -1180).
+# State OWN: +0 X amps, +0x14 Y amps, +0x28 last level, +0x2C/+0x30 last own X/Y,
+# +0x40 fresh, +0x44 dropped, +0x48 level-change sends, +0x4C passed.
+OWN = FAST + 0x100
+OWNPOS_HOOK = """
+    push {{r3, r4, r7, lr}}
+    add.w r4, r8, #0x798
+    ldr  r7, lit_own
+    addw r0, r8, #0x794
+    ldrb r0, [r0]
+    ldrb r1, [r7, #0x28]
+    strb r0, [r7, #0x28]
+    cmp  r0, #{minlvl}
+    blo.w pass
+    cmp  r1, #{minlvl}
+    blo.w pass
+    mov  r2, r1
+    mov.w r12, #0
+{compare}
+    cmp.w r12, #0
+    beq.w stale
+{btn}    add.w r0, r4, #0x11
+    ldrb r1, [r4, #0x0c]
+    adds r1, #4
+    bl   calc
+    subw r0, r0, #1190
+    cmp  r0, #0
+    it   lt
+    movlt r0, #0
+    movw r1, #44800
+    cmp  r0, r1
+    it   gt
+    movgt r0, r1
+    str  r0, [r6, #0x1c]
+    str  r0, [r7, #0x2c]
+    add.w r0, r4, #0xbb
+    ldrb.w r1, [r4, #0xb6]
+    adds r1, #4
+    bl   calc
+    subw r0, r0, #1180
+    cmp  r0, #0
+    it   lt
+    movlt r0, #0
+    movw r1, #29600
+    cmp  r0, r1
+    it   gt
+    movgt r0, r1
+    str  r0, [r6, #0x54]
+    str  r0, [r7, #0x30]
+{gate}    ldr  r0, [r7, #0x40]
+    adds r0, #1
+    str  r0, [r7, #0x40]
+    movs r0, #0
+    strb r0, [r7, #0x29]
+    b.w  send
+stale:
+    ldrb r0, [r7, #0x29]
+    adds r0, #1
+    cmp  r0, #{stalemax}
+    it   hs
+    movhs r0, #{stalemax}
+    strb r0, [r7, #0x29]
+    bhs.w pass
+    ldrb r0, [r7, #0x28]
+    cmp  r0, r2
+    beq.w drop
+    ldr  r0, [r7, #0x2c]
+    str  r0, [r6, #0x1c]
+    ldr  r0, [r7, #0x30]
+    str  r0, [r6, #0x54]
+    ldr  r0, [r7, #0x48]
+    adds r0, #1
+    str  r0, [r7, #0x48]
+    b.w  send
+drop:
+    ldr  r0, [r7, #0x44]
+    adds r0, #1
+    str  r0, [r7, #0x44]
+    ldr  r0, [r5]
+    mov  r1, r6
+    bl   #{free}
+    ldr  r0, [r5]
+    movs r1, #0
+    pop  {{r3, r4, r7, pc}}
+pass:
+    ldr  r0, [r7, #0x4c]
+    adds r0, #1
+    str  r0, [r7, #0x4c]
+send:
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r3, r4, r7, pc}}
+
+calc:
+    push {{r4, r5, r6, r7, lr}}
+    movs r2, #1
+    ldrsh.w r3, [r0, #10]
+    movs r4, #2
+lp:
+    cmp  r4, #9
+    bge  found
+    movs r5, #10
+    mla  r12, r4, r5, r0
+    ldrsh.w r5, [r12]
+    cmp  r5, r3
+    ble  nx
+    mov  r3, r5
+    mov  r2, r4
+nx:
+    adds r4, #1
+    b    lp
+found:
+    movs r5, #10
+    mla  r12, r2, r5, r0
+    ldrsh r4, [r12, #-10]
+    ldrsh.w r5, [r12, #10]
+    subs r6, r5, r4
+    movw r7, #1683
+    mul  r6, r6, r7
+    lsls r3, r3, #1
+    subs r3, r3, r4
+    subs r3, r3, r5
+    lsls r3, r3, #1
+    cmp  r3, #0
+    ble  noden
+    .short 0xfb96, 0xf6f3            @ sdiv r6, r6, r3 (keystone lacks it)
+    b    cont
+noden:
+    movs r6, #0
+cont:
+    adds r1, r1, r2
+    subs r1, #4
+    mul  r1, r1, r7
+    add  r1, r6
+    mov  r0, r1
+    pop  {{r4, r5, r6, r7, pc}}
+    .align 2
+lit_own: .word {own}
+{btnlits}
+"""
+# --ownbtn (with --hold --rawhold, k 1): with a side button held, the S1 that follows an
+# S2 without a pressure exchange before it reads wrong (v2.61: 41% zigzag). With k 1 that
+# is the stock-loop S1 (it follows the extra S2); the extra S1 follows the stock S2, which
+# follows P. Pressure-hold tags tell the S1 frames apart (ARR+3: stock S1 = 1, first extra
+# S1 = 0): extra S1 results store the calc's button bits (r8+2 [2:0]) at OWN+0x2A, stock
+# S1 results are dropped while that is non-zero. (v2.62 had it the other way round: 23%.)
+OWN_BTN = """    ldr  r0, lit_arr
+    ldrb r0, [r0, #3]
+    cmp  r0, #0
+    bne  stockf
+    ldrb r0, [r8, #2]
+    and  r0, r0, #{btnmask}
+    strb r0, [r7, #0x2a]
+    b    btnok
+stockf:
+    ldrb r0, [r7, #0x2a]
+    cmp  r0, #0
+    beq  btnok
+    movs r0, #0
+    strb r0, [r7, #0x29]
+    b.w  drop
+btnok:
+"""
+# --owncal: position routine v2 for --ownpos. Fixed point (frac in 1/1024 coil).
+#  * dropout-robust: when the smaller neighbour of the peak looks like a dropout
+#    (min*4 < c and max*5 < 4c), frac comes from the peak and the larger neighbour
+#    with the typical peak curvature K (Q10): d = +-((m - c) / (K c) + 1/2)
+#  * S-curve correction: 11-knot table per axis over frac -0.5..0.5 (linear interp),
+#    fitted against Wacom's position on slow v2.53/v2.64 logs (X full, Y half).
+# calc(r0 amps, r1 window start + 4, r2 table, r3 K) -> position without offset.
+CALC_V2 = """
+calc:
+    push {{r4, r5, r6, r7, r8, r9, r10, lr}}
+    mov  r9, r2
+    mov  r10, r3
+    movs r2, #1
+    ldrsh.w r3, [r0, #10]
+    movs r4, #2
+lp:
+    cmp  r4, #9
+    bge  found
+    movs r5, #10
+    mla  r12, r4, r5, r0
+    ldrsh.w r5, [r12]
+    cmp  r5, r3
+    ble  nx
+    mov  r3, r5
+    mov  r2, r4
+nx:
+    adds r4, #1
+    b    lp
+found:
+    movs r5, #10
+    mla  r12, r2, r5, r0
+    ldrsh r4, [r12, #-10]
+    ldrsh.w r5, [r12, #10]
+    cmp  r3, #0
+    ble.w zero
+    cmp  r4, r5
+    itete lt
+    movlt r6, r4
+    movge r6, r5
+    movlt r7, r5
+    movge r7, r4
+    lsl  r12, r6, #2
+    cmp  r12, r3
+    bge  parab
+    add.w r12, r7, r7, lsl #2
+    lsl  r8, r3, #2
+    cmp  r12, r8
+    bge  parab
+    sub  r12, r7, r3
+    lsl  r12, r12, #10
+    .short 0xfb9c, 0xfcf3            @ sdiv r12, r12, r3
+    lsl  r12, r12, #10
+    .short 0xfb9c, 0xfcfa            @ sdiv r12, r12, r10
+    add  r6, r12, #512
+    cmp  r5, r4
+    it   lt
+    rsblt r6, r6, #0
+    b    have
+parab:
+    sub  r6, r5, r4
+    lsl  r6, r6, #10
+    lsl  r12, r3, #1
+    sub  r12, r12, r4
+    sub  r12, r12, r5
+    lsl  r12, r12, #1
+    cmp  r12, #0
+    ble  zero
+    .short 0xfb96, 0xf6fc            @ sdiv r6, r6, r12
+    b    have
+zero:
+    movs r6, #0
+have:
+    add  r12, r6, #512
+    cmp  r12, #0
+    it   lt
+    movlt r12, #0
+    cmp  r12, #1024
+    it   gt
+    movgt r12, #1024
+    add.w r8, r12, r12, lsl #2
+    lsl  r8, r8, #1
+    lsr  r7, r8, #10
+    cmp  r7, #9
+    it   gt
+    movgt r7, #9
+    sub  r8, r8, r7, lsl #10
+    add.w r12, r9, r7, lsl #1
+    ldrsh.w r4, [r12]
+    ldrsh.w r5, [r12, #2]
+    sub  r5, r5, r4
+    mul  r5, r5, r8
+    asr  r5, r5, #10
+    add  r4, r4, r5
+    movw r7, #1683
+    add  r1, r1, r2
+    subs r1, #4
+    mul  r1, r1, r7
+    mul  r6, r6, r7
+    asr  r6, r6, #10
+    add  r1, r6
+    add  r1, r4
+    mov  r0, r1
+    pop  {{r4, r5, r6, r7, r8, r9, r10, pc}}
+"""
+# --ownbsw: while a side button is held, the stock loop skips the extra cycles (with a
+# button the extra-cycle scans are noisy, v2.64: 10-20% glitches per scan type; the stock
+# schedule is clean, v2.57). The ownpos hook keeps a countdown at OWN+0x2B: 40 on any calc
+# result with button bits (r8+2 [2:0]), -1 otherwise. Stock step 29's event returns 3
+# (alt3 = 23) instead of 1 while it is non-zero.
+OWN_BSW = """    ldrb r0, [r8, #2]
+    ands r0, r0, #7
+    beq  nob
+    movs r0, #40
+    strb r0, [r7, #0x2b]
+    b    bswd
+nob:
+    ldrb r0, [r7, #0x2b]
+    cbz  r0, bswd
+    subs r0, #1
+    strb r0, [r7, #0x2b]
+bswd:
+"""
+STEP29_BSW = """
+    push {{r4, lr}}
+    bl   #{inner}
+    cmp  r0, #1
+    bne  out
+    ldr  r1, lit_own
+    ldrb r1, [r1, #0x2b]
+    cbz  r1, out
+    movs r0, #3
+out:
+    pop  {{r4, pc}}
+    .align 2
+lit_own: .word {own}
+"""
+# --owngate (with --ownpos, --hold --rawhold, k 1): right at a side-button press the
+# extra-cycle S1 reads ~850 counts off for a scan or two (v2.68: all 65 button zigzags
+# within 30 ms of a press), before the button reaches the calc and --ownbsw switches the
+# schedule. Stock-loop S1 results (tag 1) keep the last two sent positions (OWN+0x50..0x5C);
+# an extra S1 result (tag 0) is dropped when it is further than 500 + |v|/2 counts from
+# last + 5/8 v (v = last - previous stock position) on either axis. Drops: OWN+0x60.
+OWN_GATE = """    ldr  r0, lit_arr
+    ldrb r0, [r0, #3]
+    cmp  r0, #0
+    bne  g_stock
+    ldr  r0, [r7, #0x50]
+    ldr  r1, [r7, #0x58]
+    ldr  r2, [r6, #0x1c]
+    bl   g_chk
+    cmp  r0, #0
+    bne  g_drop
+    ldr  r0, [r7, #0x54]
+    ldr  r1, [r7, #0x5c]
+    ldr  r2, [r6, #0x54]
+    bl   g_chk
+    cmp  r0, #0
+    bne  g_drop
+    b    g_ok
+g_chk:
+    subs r1, r0, r1
+    add.w r3, r1, r1, lsl #2
+    asrs r3, r3, #3
+    add  r3, r0
+    subs r2, r2, r3
+    cmp  r2, #0
+    it   lt
+    rsblt r2, r2, #0
+    cmp  r1, #0
+    it   lt
+    rsblt r1, r1, #0
+    lsrs r1, r1, #1
+    addw r1, r1, #500
+    movs r0, #0
+    cmp  r2, r1
+    it   gt
+    movgt r0, #1
+    bx   lr
+g_drop:
+    ldr  r0, [r7, #0x60]
+    adds r0, #1
+    str  r0, [r7, #0x60]
+    movs r0, #0
+    strb r0, [r7, #0x29]
+    b.w  drop
+g_stock:
+    ldr  r0, [r7, #0x50]
+    str  r0, [r7, #0x58]
+    ldr  r0, [r7, #0x54]
+    str  r0, [r7, #0x5c]
+    ldr  r0, [r6, #0x1c]
+    str  r0, [r7, #0x50]
+    ldr  r0, [r6, #0x54]
+    str  r0, [r7, #0x54]
+g_ok:
+"""
+# --ownanchor (with --ownsrc wacom): Wacom's final output carries a 2D correction
+# (bilinear table, 0x080BAF88) that its per-measurement field r8+0xFA4/+0x10D8 lacks;
+# without it slow diagonals wobble. Every tracked result stores the raw field and the
+# output in 8-deep rings (OWN+0x70 raw X, +0x80 raw Y, +0xA0 out X, +0xB0 out Y, index
+# +0x90). While the raw position moved < 30 internal units over 4 results, the
+# correction D (+0x94 X, +0x98 Y) follows (out + 2800 - raw 4 results ago) with 1/8 per
+# result (initialised to out + 2800 - raw on the first tracked result, flag +0x91).
+# Fresh results send raw - 2800 + D. If Wacom's output moved < 60 counts over 4 results
+# and the result differs from it by > 150 on either axis within 16 results of a change
+# of the calc's button bits (button-press shake; state +0xC8 last bits, +0xC9 countdown),
+# Wacom's output is sent instead (count +0xC4). Not outside that window: at the start of
+# a movement Wacom's output is still at rest and would pull the cursor back.
+ANC_SUBS = """
+anc_upd:
+    push {{r2, r4, r5, r6, lr}}
+    ldrb.w r0, [r8, #2]
+    and  r0, r0, #7
+    ldrb r1, [r7, #0xc8]
+    cmp  r0, r1
+    beq  a_bsame
+    strb r0, [r7, #0xc8]
+    movs r0, #16
+    strb r0, [r7, #0xc9]
+    b    a_bdone
+a_bsame:
+    ldrb r0, [r7, #0xc9]
+    cmp  r0, #0
+    beq  a_bdone
+    subs r0, #1
+    strb r0, [r7, #0xc9]
+a_bdone:
+    ldrb r0, [r7, #0x90]
+    adds r0, #1
+    and  r0, r0, #7
+    strb r0, [r7, #0x90]
+    sub  r4, r0, #4
+    and  r4, r4, #7
+    addw r1, r8, #0xfa4
+    ldrh r3, [r1]
+    add.w r12, r7, #0x70
+    strh r3, [r12, r0, lsl #1]
+    ldrh r5, [r12, r4, lsl #1]
+    add.w r1, r1, #0x134
+    ldrh r6, [r1]
+    add.w r12, r7, #0x80
+    strh r6, [r12, r0, lsl #1]
+    ldrh r1, [r12, r4, lsl #1]
+    ldr.w r2, [r8, #0x1c]
+    add.w r12, r7, #0xa0
+    strh r2, [r12, r0, lsl #1]
+    ldr.w r2, [r8, #0x54]
+    add.w r12, r7, #0xb0
+    strh r2, [r12, r0, lsl #1]
+    ldrb r2, [r7, #0x91]
+    cmp  r2, #0
+    bne  a_upd
+    movs r2, #1
+    strb r2, [r7, #0x91]
+    ldr.w r2, [r8, #0x1c]
+    addw r2, r2, #2800
+    sub  r2, r2, r3
+    str  r2, [r7, #0x94]
+    ldr.w r2, [r8, #0x54]
+    addw r2, r2, #2840
+    sub  r2, r2, r6
+    str  r2, [r7, #0x98]
+    b    a_done
+a_upd:
+    subs r2, r3, r5
+    it   lt
+    rsblt r2, r2, #0
+    cmp  r2, #30
+    bge  a_done
+    subs r2, r6, r1
+    it   lt
+    rsblt r2, r2, #0
+    cmp  r2, #30
+    bge  a_done
+    ldr.w r2, [r8, #0x1c]
+    addw r2, r2, #2800
+    sub  r2, r2, r5
+    ldr  r3, [r7, #0x94]
+    sub  r2, r2, r3
+    asr  r2, r2, #3
+    add  r3, r2
+    str  r3, [r7, #0x94]
+    ldr.w r2, [r8, #0x54]
+    addw r2, r2, #2840
+    sub  r2, r2, r1
+    ldr  r3, [r7, #0x98]
+    sub  r2, r2, r3
+    asr  r2, r2, #3
+    add  r3, r2
+    str  r3, [r7, #0x98]
+a_done:
+    pop  {{r2, r4, r5, r6, pc}}
+
+anc_fix:
+    push {{r2, r4, lr}}
+    ldr  r0, [r6, #0x1c]
+    ldr  r1, [r7, #0x94]
+    add  r0, r1
+    cmp  r0, #0
+    it   lt
+    movlt r0, #0
+    movw r1, #44800
+    cmp  r0, r1
+    it   gt
+    movgt r0, r1
+    str  r0, [r6, #0x1c]
+    ldr  r0, [r6, #0x54]
+    ldr  r1, [r7, #0x98]
+    add  r0, r1
+    cmp  r0, #0
+    it   lt
+    movlt r0, #0
+    movw r1, #29600
+    cmp  r0, r1
+    it   gt
+    movgt r0, r1
+    str  r0, [r6, #0x54]
+    ldrb r2, [r7, #0xc9]
+    cmp  r2, #0
+    beq  f_done
+    ldrb r2, [r7, #0x90]
+    sub  r4, r2, #4
+    and  r4, r4, #7
+    add.w r12, r7, #0xa0
+    ldrh r0, [r12, r2, lsl #1]
+    ldrh r1, [r12, r4, lsl #1]
+    subs r0, r0, r1
+    it   lt
+    rsblt r0, r0, #0
+    cmp  r0, #60
+    bge  f_done
+    add.w r12, r7, #0xb0
+    ldrh r0, [r12, r2, lsl #1]
+    ldrh r1, [r12, r4, lsl #1]
+    subs r0, r0, r1
+    it   lt
+    rsblt r0, r0, #0
+    cmp  r0, #60
+    bge  f_done
+    ldr  r0, [r6, #0x1c]
+    ldr.w r1, [r8, #0x1c]
+    subs r0, r0, r1
+    it   lt
+    rsblt r0, r0, #0
+    cmp  r0, #150
+    bgt  f_sub
+    ldr  r0, [r6, #0x54]
+    ldr.w r1, [r8, #0x54]
+    subs r0, r0, r1
+    it   lt
+    rsblt r0, r0, #0
+    cmp  r0, #150
+    ble  f_done
+f_sub:
+    ldr.w r0, [r8, #0x1c]
+    str  r0, [r6, #0x1c]
+    ldr.w r0, [r8, #0x54]
+    str  r0, [r6, #0x54]
+    ldr  r0, [r7, #0xc4]
+    adds r0, #1
+    str  r0, [r7, #0xc4]
+f_done:
+    ldr  r0, [r6, #0x1c]
+    str  r0, [r7, #0x2c]
+    ldr  r0, [r6, #0x54]
+    str  r0, [r7, #0x30]
+    pop  {{r2, r4, pc}}
+"""
+# --nosmooth (with --ownpos): the calc runs its position through linearization, tilt and
+# pressure compensation and then, if feature flag 0x08 is set (flag word read by
+# 0x080BB5D6, 0x2001F06C in slot B, stock value 0x38), stores a moving average /
+# stationary filter result over it (0x080BC3B4..C3C4): Wacom's 5-10 ms lag and the equal
+# interpolation steps. The ownpos hook clears bit 0x08 on every calc result, except for 16
+# results after a change of the calc's button bits (the pen signal shakes right after a
+# press; OWN+0xC8 last bits, +0xC9 countdown), where it sets it again. The filter state is
+# kept up to date by the calc either way.
+OWN_NOSMOOTH = """    ldrb.w r0, [r8, #2]
+    and  r0, r0, #7
+    ldrb r1, [r7, #0xc8]
+    cmp  r0, r1
+    beq  ns_same
+    strb r0, [r7, #0xc8]
+    movs r0, #16
+    strb r0, [r7, #0xc9]
+    b    ns_set
+ns_same:
+    ldrb r0, [r7, #0xc9]
+    cmp  r0, #0
+    beq  ns_clr
+    subs r0, #1
+    strb r0, [r7, #0xc9]
+ns_set:
+    movw r0, #{flo}
+    movt r0, #{fhi}
+    ldr  r1, [r0]
+    orr  r1, r1, #8
+    str  r1, [r0]
+    b    ns_done
+ns_clr:
+    movw r0, #{flo}
+    movt r0, #{fhi}
+    ldr  r1, [r0]
+    bic  r1, r1, #8
+    str  r1, [r0]
+ns_done:
+"""
+# --phasegate N (with --ownpos): the phase (degrees, byte +8 of a coil entry) at the X
+# peak coil is ~45 deg and steady while drawing (v2.53/v2.64 logs: consecutive fresh
+# results differ by <= 1 deg in 99%); a side button shifts the pen's resonance and the
+# phase jumps (~58 deg), at the very first affected scan, before the calc's button bits
+# change (v2.72: a 300-450 count bump starting ~8 ms before the button bit). A fresh result
+# whose phase differs from the previous fresh one by more than N degrees is dropped, and
+# output resumes after two consecutive results agree. State: OWN+0xCA last phase (0xFF =
+# none, set when tracking starts), +0xCB agreeing results since the jump, +0x64 drops.
+OWN_PHASEGATE = """    add.w r0, r4, #17
+    movs r1, #1
+    ldrsh.w r2, [r0, #10]
+    movs r3, #2
+pg_lp:
+    cmp  r3, #9
+    bge  pg_found
+    add.w r12, r3, r3, lsl #2
+    ldrsh.w r12, [r0, r12, lsl #1]
+    cmp  r12, r2
+    ble  pg_nx
+    mov  r2, r12
+    mov  r1, r3
+pg_nx:
+    adds r3, #1
+    b    pg_lp
+pg_found:
+    add.w r12, r1, r1, lsl #2
+    add.w r12, r0, r12, lsl #1
+    ldrb.w r1, [r12, #8]
+    ldrb r2, [r7, #0xca]
+    strb r1, [r7, #0xca]
+    cmp  r2, #0xff
+    beq  pg_init
+    subs r2, r1, r2
+    it   lt
+    rsblt r2, r2, #0
+    cmp  r2, #{thr}
+    bgt  pg_jump
+    ldrb r2, [r7, #0xcb]
+    cmp  r2, #1
+    bhs  pg_ok
+    adds r2, #1
+    strb r2, [r7, #0xcb]
+    b    pg_drop
+pg_jump:
+    movs r2, #0
+    strb r2, [r7, #0xcb]
+pg_drop:
+    ldr  r0, [r7, #0x64]
+    adds r0, #1
+    str  r0, [r7, #0x64]
+    movs r0, #0
+    strb r0, [r7, #0x29]
+    b.w  drop
+pg_init:
+    movs r2, #1
+    strb r2, [r7, #0xcb]
+pg_ok:
+"""
+# --pressgate (with --ownpos): v2.73 still had single 600-1000 count spikes 2-3 ms after
+# a side-button press while hovering, on scans whose phase did not jump. For 12 fresh
+# results after any change of the calc's button bits (OWN+0xC8 bits, +0xC9 countdown), a
+# fresh result is dropped when it is further than 250 + (1.5 + n) |v| from last + v
+# (v = last - previous accepted position, OWN+0xD0/+0xD4 last, +0xD8/+0xDC previous;
+# n = fresh results since the last accepted one, OWN+0xF4, so a pen that moved on while
+# scans were dropped is not locked out - v2.75/v2.76 froze 60-120 ms after presses).
+# Never two drops in a row (OWN+0xF5): the spikes are single scans, and a click that starts
+# a fast movement (v2.77: up to 83 ms frozen) must not be held. Drops: OWN+0xE0.
+OWN_PRESSGATE = """    ldrb.w r0, [r8, #2]
+    and  r0, r0, #7
+    ldrb r1, [r7, #0xc8]
+    cmp  r0, r1
+    beq  pz_same
+    strb r0, [r7, #0xc8]
+    movs r0, #12
+    strb r0, [r7, #0xc9]
+    b    pz_chk
+pz_same:
+    ldrb r0, [r7, #0xc9]
+    cmp  r0, #0
+    beq  pz_upd
+    subs r0, #1
+    strb r0, [r7, #0xc9]
+pz_chk:
+    ldrb r0, [r7, #0xf5]
+    cmp  r0, #0
+    bne  pz_upd
+    ldrb r3, [r7, #0xf4]
+    ldr  r0, [r7, #0xd0]
+    ldr  r1, [r7, #0xd8]
+    ldr  r2, [r6, #0x1c]
+    bl   pz_dev
+    cmp  r0, #0
+    bne  pz_drop
+    ldrb r3, [r7, #0xf4]
+    ldr  r0, [r7, #0xd4]
+    ldr  r1, [r7, #0xdc]
+    ldr  r2, [r6, #0x54]
+    bl   pz_dev
+    cmp  r0, #0
+    bne  pz_drop
+    b    pz_upd
+pz_dev:
+    subs r1, r0, r1
+    subs r2, r2, r0
+    subs r2, r2, r1
+    cmp  r2, #0
+    it   lt
+    rsblt r2, r2, #0
+    cmp  r1, #0
+    it   lt
+    rsblt r1, r1, #0
+    mul  r3, r3, r1
+    add.w r1, r1, r1, lsr #1
+    add  r1, r3
+    add.w r1, r1, #250
+    movs r0, #0
+    cmp  r2, r1
+    it   gt
+    movgt r0, #1
+    bx   lr
+pz_drop:
+    movs r0, #1
+    strb r0, [r7, #0xf5]
+    ldr  r0, [r7, #0xe0]
+    adds r0, #1
+    str  r0, [r7, #0xe0]
+    movs r0, #0
+    strb r0, [r7, #0x29]
+    b.w  drop
+pz_upd:
+    movs r0, #0
+    strb r0, [r7, #0xf4]
+    strb r0, [r7, #0xf5]
+    ldr  r0, [r7, #0xd0]
+    str  r0, [r7, #0xd8]
+    ldr  r0, [r7, #0xd4]
+    str  r0, [r7, #0xdc]
+    ldr  r0, [r6, #0x1c]
+    str  r0, [r7, #0xd0]
+    ldr  r0, [r6, #0x54]
+    str  r0, [r7, #0xd4]
+"""
+# --btnkeep (with --ownpos and the gates): a gate drop, or a skipped non-fresh result, must
+# never lose a side-button change (v2.74: quick clicks mid-stroke were not seen, all reports
+# carrying the button fell into the dropped transition scans). Every sent result records its
+# button bits (mail +2 [2:0]) at OWN+0xE4 and its position at +0xE8/+0xEC (previous one at
+# +0xD8/+0xDC, used by --pressgate). A dropped result whose button bits differ is sent
+# instead, with the last sent position (count +0xF0); such button-only sends update the
+# button record but not the position history (v2.75 did, which zeroed the press gate's
+# velocity and dropped a moving pen's scans for 60-120 ms after each press).
+OWN_GDROP = """gdrop:
+    ldrb r0, [r6, #2]
+    and  r0, r0, #7
+    ldrb r1, [r7, #0xe4]
+    cmp  r0, r1
+    beq.w drop
+gsend:
+    ldr  r0, [r7, #0xe8]
+    str  r0, [r6, #0x1c]
+    ldr  r0, [r7, #0xec]
+    str  r0, [r6, #0x54]
+    ldr  r0, [r7, #0xf0]
+    adds r0, #1
+    str  r0, [r7, #0xf0]
+    ldrb r0, [r6, #2]
+    and  r0, r0, #7
+    strb r0, [r7, #0xe4]
+    b.w  send_nr
+"""
+OWN_SENDREC = """    ldrb r0, [r6, #2]
+    and  r0, r0, #7
+    strb r0, [r7, #0xe4]
+    ldr  r0, [r6, #0x1c]
+    str  r0, [r7, #0xe8]
+    ldr  r0, [r6, #0x54]
+    str  r0, [r7, #0xec]
+"""
+# --btndeb (with --ownpos): Wacom's calc flickers the side-button bits for a result or two
+# around a press (v2.77/v2.78 forwarded that: 28-39 one-report flickers per minute, v2.74 6,
+# stock schedule 0). A button state counts once it held for N consecutive results (v2.79's
+# N = 2 let the k 1 pattern through: 3 results with, 3 without the button while it is held)
+# (candidate OWN+0xF6, count +0xF7, debounced +0xF8); every mail gets the debounced bits in
+# +2 [2:0], so --btnkeep only forwards real changes.
+OWN_BTNDEB = """    ldrb.w r0, [r8, #2]
+    and  r0, r0, #7
+    ldrb r1, [r7, #0xf6]
+    ldrb r2, [r7, #0xf7]
+    cmp  r0, r1
+    ite  eq
+    addeq r2, #1
+    movne r2, #1
+    strb r0, [r7, #0xf6]
+    cmp  r2, #{deb}
+    it   hs
+    strbhs r0, [r7, #0xf8]
+    cmp  r2, #{deb}
+    it   hi
+    movhi r2, #{deb}
+    strb r2, [r7, #0xf7]
+    ldrb r0, [r7, #0xf8]
+    and  r0, r0, #7
+    ldrb r1, [r6, #2]
+    bic  r1, r1, #7
+    orr  r1, r1, r0
+    strb r1, [r6, #2]
+"""
+# --fastpass N (with --phasegate/--pressgate): while the pen moves fast (sum of |dx|+|dy| of
+# the last two accepted positions > N counts per fresh result, OWN+0xF9), transition scans
+# are sent instead of dropped (user choice: a hold-then-catch-up across the ~15 ms press
+# transition is worse than 2-3 slightly-off points in a fast stroke).
+OWN_FASTFLAG = """    ldr  r0, [r7, #0xd0]
+    ldr  r1, [r7, #0xd8]
+    subs r0, r0, r1
+    it   lt
+    rsblt r0, r0, #0
+    ldr  r1, [r7, #0xd4]
+    ldr  r2, [r7, #0xdc]
+    subs r1, r1, r2
+    it   lt
+    rsblt r1, r1, #0
+    add  r0, r1
+    cmp  r0, #{fast}
+    ite  hi
+    movhi r0, #1
+    movls r0, #0
+    strb r0, [r7, #0xf9]
+"""
+OWN_CMP = """    ldrh.w r0, [r4, #{src}]
+    ldrh.w r1, [r7, #{dst}]
+    cmp  r0, r1
+    it   ne
+    movne r12, #1
+    strh.w r0, [r7, #{dst}]
+"""
+# --calclog (diagnostic, observe only): at the calc mail put, every 128th result:
+# entry +0 seq (written last), +4 result number, +0x10 X block (0x75 B from r8+0x798),
+# +0x88 Y block (r8+0x842), +0x100 calc RAM 0x20010E0C..+0x12F4. 4 x 0x1800 B ring at
+# COILLOG, state COILLOG_IDX: +0 entries logged, +4 results seen.
+CALCLOG_BASE, CALCLOG_N, CALCLOG_ESZ = 0x20010E0C, 0x12F4, 0x1800
+CALCLOG_HOOK = """
+    push {{r4, lr}}
+    ldr  r1, lit_idx
+    ldr  r0, [r1, #4]
+    adds r0, #1
+    str  r0, [r1, #4]
+    ands r2, r0, #127
+    bne.w skip
+    ldr  r0, [r1]
+    adds r0, #1
+    and  r3, r0, #3
+    movw r2, #0x1800
+    mul  r3, r3, r2
+    ldr  r4, lit_log
+    add  r4, r3
+    movs r2, #0
+    str  r2, [r4]
+    ldr  r2, [r1, #4]
+    str  r2, [r4, #4]
+    add.w r0, r4, #0x10
+    add.w r1, r8, #0x798
+    movs r2, #0x75
+    bl   #{memcpy}
+    add.w r0, r4, #0x88
+    addw r1, r8, #0x842
+    movs r2, #0x75
+    bl   #{memcpy}
+    add.w r0, r4, #0x100
+    ldr  r1, lit_calc
+    movw r2, #{n}
+    bl   #{memcpy}
+    ldr  r1, lit_idx
+    ldr  r0, [r1]
+    adds r0, #1
+    str  r0, [r4]
+    str  r0, [r1]
+skip:
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r4, pc}}
+    .align 2
+lit_idx:  .word {idx}
+lit_log:  .word {log}
+lit_calc: .word {calc}
+"""
+# --poslog (diagnostic, observe only): bursts of 32 consecutive calc results every 512,
+# 128 B entries in a 64-entry ring at COILLOG (state COILLOG_IDX: +0 logged, +4 seen).
+# Entry: +0 seq (written last), +4 result no., +8 out X, +0xC out Y (r8+0x1C/+0x54),
+# +0x10 u16 r8+0xFA0, +0xFA4, +0x10D4, +0x10D8, +0x18 X window start, +0x19 Y start,
+# +0x1A u16 [r8] (pressure), +0x1C X amps (10 x s16), +0x30 Y amps, +0x44 r8+2 buttons.
+POSLOG_HOOK = """
+    push {{r4, lr}}
+    ldr  r1, lit_idx
+    ldr  r0, [r1, #4]
+    adds r0, #1
+    str  r0, [r1, #4]
+    ubfx r2, r0, #0, #9
+    cmp  r2, #32
+    bhs.w skip
+    ldr  r0, [r1]
+    adds r0, #1
+    and  r3, r0, #63
+    ldr  r4, lit_log
+    add.w r4, r4, r3, lsl #7
+    movs r2, #0
+    str  r2, [r4]
+    ldr  r2, [r1, #4]
+    str  r2, [r4, #4]
+    ldr.w r2, [r8, #0x1c]
+    str  r2, [r4, #8]
+    ldr.w r2, [r8, #0x54]
+    str  r2, [r4, #12]
+    addw r3, r8, #0xfa0
+    ldrh r2, [r3]
+    strh r2, [r4, #0x10]
+    ldrh r2, [r3, #4]
+    strh r2, [r4, #0x12]
+    add.w r3, r3, #0x134
+    ldrh r2, [r3]
+    strh r2, [r4, #0x14]
+    ldrh r2, [r3, #4]
+    strh r2, [r4, #0x16]
+    add.w r3, r8, #0x798
+    ldrb r2, [r3, #0x0c]
+    strb r2, [r4, #0x18]
+    ldrb.w r2, [r3, #0xb6]
+    strb r2, [r4, #0x19]
+    ldrh.w r2, [r8]
+    strh r2, [r4, #0x1a]
+    ldrb.w r2, [r8, #2]
+    strb.w r2, [r4, #0x44]
+{copy}
+    ldr  r1, lit_idx
+    ldr  r0, [r1]
+    adds r0, #1
+    str  r0, [r4]
+    str  r0, [r1]
+skip:
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r4, pc}}
+    .align 2
+lit_idx: .word {idx}
+lit_log: .word {log}
+"""
+# --watch (diagnostic): find the code that writes given RAM words with the Cortex-M4 DWT
+# data watchpoints. The DebugMonitor vector (image+0x30, stock: bx lr) points to WATCH_DM;
+# the calc mail hook arms (once, magic at WATCH+4): DEMCR TRCENA|MON_EN, COMPn = address,
+# MASKn = 0, FUNCTIONn = 6 (write). The handler logs the stacked PC (instruction after the
+# write) into 16 slots {pc, hits, comparator bits} at WATCH+0x10; total hits at WATCH+0;
+# all comparators are switched off after 5000 hits.
+WATCH = 0x2003FA00
+WATCH_MAGIC = 0x57415443
+WATCH_SETUP = """
+    push {{r4, lr}}
+    ldr  r0, lit_w
+    ldr  r1, [r0, #4]
+    ldr  r2, lit_magic
+    cmp  r1, r2
+    beq  w_done
+    str  r2, [r0, #4]
+    movs r1, #0
+    str  r1, [r0]
+    add.w r3, r0, #0x10
+    movs r4, #48
+w_clr:
+    str  r1, [r3], #4
+    subs r4, #1
+    bne  w_clr
+    ldr  r2, lit_demcr
+    ldr  r1, [r2]
+    orr  r1, r1, #0x01000000
+    orr  r1, r1, #0x00010000
+    str  r1, [r2]
+    ldr  r2, lit_dwt
+    ldr  r1, lit_a0
+    str  r1, [r2, #0x20]
+    movs r1, #0
+    str  r1, [r2, #0x24]
+    movs r1, #6
+    str  r1, [r2, #0x28]
+    ldr  r1, lit_a1
+    str  r1, [r2, #0x30]
+    movs r1, #0
+    str  r1, [r2, #0x34]
+    movs r1, #6
+    str  r1, [r2, #0x38]
+    ldr  r1, lit_a2
+    str  r1, [r2, #0x40]
+    movs r1, #0
+    str  r1, [r2, #0x44]
+    movs r1, #6
+    str  r1, [r2, #0x48]
+w_done:
+    ldr  r0, [r5]
+    mov  r1, r6
+    pop  {{r4, pc}}
+    .align 2
+lit_w:     .word {w}
+lit_magic: .word {magic}
+lit_demcr: .word 0xE000EDFC
+lit_dwt:   .word 0xE0001000
+lit_a0:    .word {a0}
+lit_a1:    .word {a1}
+lit_a2:    .word {a2}
+"""
+WATCH_DM = """
+    tst  lr, #4
+    bne  w_psp
+    .short 0xf3ef, 0x8008            @ mrs r0, msp
+    b    w_got
+w_psp:
+    .short 0xf3ef, 0x8009            @ mrs r0, psp
+w_got:
+    ldr  r1, [r0, #24]
+    ldr  r3, lit_dwt2
+    ldr  r0, [r3, #0x28]
+    ubfx r0, r0, #24, #1
+    ldr  r2, [r3, #0x38]
+    ubfx r2, r2, #24, #1
+    orr  r0, r0, r2, lsl #1
+    ldr  r2, [r3, #0x48]
+    ubfx r2, r2, #24, #1
+    orr  r0, r0, r2, lsl #2
+    ldr  r2, lit_w2
+    ldr  r3, [r2]
+    adds r3, #1
+    str  r3, [r2]
+    movw r12, #5000
+    cmp  r3, r12
+    blo  w_keep
+    ldr  r3, lit_dwt2
+    movs r12, #0
+    str  r12, [r3, #0x28]
+    str  r12, [r3, #0x38]
+    str  r12, [r3, #0x48]
+w_keep:
+    add.w r2, r2, #0x10
+    movs r3, #16
+w_loop:
+    ldr  r12, [r2]
+    cmp  r12, r1
+    beq  w_found
+    cmp  r12, #0
+    beq  w_new
+    adds r2, #12
+    subs r3, #1
+    bne  w_loop
+    bx   lr
+w_new:
+    str  r1, [r2]
+w_found:
+    ldr  r12, [r2, #4]
+    add  r12, r12, #1
+    str  r12, [r2, #4]
+    ldr  r12, [r2, #8]
+    orr  r12, r12, r0
+    str  r12, [r2, #8]
+    bx   lr
+    .align 2
+lit_dwt2: .word 0xE0001000
+lit_w2:   .word {w}
+"""
 USB_READY_SIG = re.compile(rb"\xdf\xf8..\x90\xf8\xfc\x01\x03\x28\x11\xd1\xdf\xf8..\xd0\xf8\x18\x02"
                            rb"\x00\x28\x0b\xd0\xdf\xf8..\xd1\xf8\x18\x12\x00\x29\x05\xd0\x90\xf8\x10\x02", re.S)
 USB_DATAIN_SIG = re.compile(rb"\x00\xb5\x83\xb0\xd0\xf8\x18\x02\x00\x28\x01\xd1\x02\x20..\xc9\xb2"
@@ -2247,6 +3738,67 @@ def main():
                          "spaced (~0.83/0.9/1.0 ms) instead of 1.67/0.19/0.9 ms")
     ap.add_argument("--burst26", action="store_true",
                     help="run step 26's action as a real burst in each extra cycle")
+    ap.add_argument("--ownpos", action="store_true",
+                    help="own position from raw coil profiles, real measurements only (k 0)")
+    ap.add_argument("--s2short", action="store_true",
+                    help="extra cycles: S1 + only the short S2 pass a (experimental)")
+    ap.add_argument("--s1only", action="store_true",
+                    help="extra cycles are coordinate scans only (S1), no pen-data readout")
+    ap.add_argument("--ownanchor", action="store_true",
+                    help="--ownsrc wacom: add the slowly learned output correction, substitute Wacom output on shake")
+    ap.add_argument("--owngate", action="store_true",
+                    help="--ownpos: drop extra-cycle positions far from the stock-loop prediction")
+    ap.add_argument("--fastpass", type=int, default=0, metavar="N",
+                    help="--phasegate/--pressgate: no drops while the pen moves faster than N counts/result")
+    ap.add_argument("--btndeb", type=int, default=0, metavar="N",
+                    help="--ownpos: debounce side-button bits over N results (k 1: button bits come in "
+                         "blocks of 3 good / 3 bad results while a button is held, so N >= 4)")
+    ap.add_argument("--btnkeep", action="store_true",
+                    help="--ownpos: never drop a result that changes the side-button bits")
+    ap.add_argument("--pressgate", action="store_true",
+                    help="--ownpos: strict outlier drop for 12 fresh results after a button change")
+    ap.add_argument("--phasegate", type=int, default=0, metavar="DEG",
+                    help="--ownpos: drop fresh results whose peak phase jumps more than DEG")
+    ap.add_argument("--nosmooth-win", dest="nosmooth_win", type=int, default=16,
+                    help="--nosmooth: results with smoothing on after a button change (0 = never)")
+    ap.add_argument("--nosmooth", action="store_true",
+                    help="--ownpos: clear the calc smoothing flag (0x08) except right after button changes")
+    ap.add_argument("--ownsrc", choices=("coils", "wacom", "keep"), default="coils",
+                    help="--ownpos: position from our coil formula or Wacom's per-measurement field")
+    ap.add_argument("--owncal", default=None, metavar="LUT_JSON",
+                    help="--ownpos: v2 position routine (dropout-robust + S-curve table)")
+    ap.add_argument("--ownbsw", action="store_true",
+                    help="--ownpos: skip the extra cycles while a side button is held")
+    ap.add_argument("--ownbtn", action="store_true",
+                    help="--ownpos: drop extra-cycle positions while a side button is held")
+    ap.add_argument("--ownlvl", type=int, default=2,
+                    help="--ownpos: lowest calc level that gets own positions (1 = far hover too)")
+    ap.add_argument("--ownstale", type=int, default=255,
+                    help="--ownpos: after this many results without a fresh scan, pass Wacom's")
+    ap.add_argument("--framelog", action="store_true",
+                    help="diagnostic: log calc position + its whole input frame (k 0 only)")
+    ap.add_argument("--watch", default=None, metavar="ADDR[,ADDR[,ADDR]]",
+                    help="diagnostic: log the code that writes these RAM words (k 0)")
+    ap.add_argument("--poslog", action="store_true",
+                    help="diagnostic: bursts of 32 results with calc position fields (k 0)")
+    ap.add_argument("--calclog", action="store_true",
+                    help="diagnostic: every 128th result, coil blocks + calc RAM (k 0)")
+    ap.add_argument("--coillog", action="store_true",
+                    help="diagnostic: log calc position + its input coil profiles (k 0 only)")
+    ap.add_argument("--nobtnsrc", action="store_true",
+                    help="side buttons zeroed at the pen data word decode")
+    ap.add_argument("--pack", action="store_true",
+                    help="two pen reports per 64 B USB packet (above 1000 reports/s)")
+    ap.add_argument("--hidmore", action="store_true",
+                    help="HID task handles up to 3 calc results per tick")
+    ap.add_argument("--nopushx", action="store_true",
+                    help="extra-cycle frames never reach the calc (stock calc input); with --frame23 on stock 23")
+    ap.add_argument("--btnhold", type=int, default=0, metavar="N",
+                    help="with --nopushx: keep a pressed button through up to N zero results (mail copy)")
+    ap.add_argument("--perscan", action="store_true",
+                    help="--k 0 --upsample: interpolate Wacom's per-scan position (no moving average)")
+    ap.add_argument("--frame23", action="store_true",
+                    help="push the set-1 pass-a frame when the coil window is unchanged")
     ap.add_argument("--hold", action="store_true")
     ap.add_argument("--drain", action="store_true")
     ap.add_argument("--log", action="store_true",
@@ -2437,6 +3989,10 @@ def main():
         ct, _ = emit(COPYTS.format(copy=hex(H["copy"]), ups=hex(UPS), cyc=hex(DWT_CTRL + 4)))
         patch_bl(H["copy_site"], ct)
         src = UPS_HID.replace("{target}", UPS_TARGET)
+        if a.perscan:
+            old = PS_HIST_OLD.replace("{", "{{").replace("}", "}}")
+            assert src.count(old) == 1, src.count(old)
+            src = src.replace(old, PS_HIST_NEW.replace("{", "{{").replace("}", "}}"))
         if lag == 0:
             # delay 0 (sample-and-hold): every tick still gets a record (the newest
             # result, or a repeat of it), but X/Y are never moved
@@ -2538,13 +4094,29 @@ def main():
             blob.append(0xFF)
         table = base + len(blob)
         for k, (q, buf, n, _) in enumerate(order):
+            if a.pack and n == 27:
+                buf = PACKBUF
             blob.extend(struct.pack("<IIII", q, buf, n, UPS + 0xD0 + 4 * k))
         blob.extend(b"\0" * 4 + b"\xFF" * ((-(len(blob) + 4)) % 0x10))
-        us, _ = emit(USB_SEND.format(ready=hex(U["ready"]), get=hex(U["get"]), memcpy=hex(U["memcpy"]),
-                                     free=hex(U["free"]), send=hex(sends.pop()), table=hex(table)))
-        dw, _ = emit(USB_DATAIN.format(datain=hex(U["datain"]), usbsend=hex(us), cnt=hex(UPS + 0xE0)))
-        ts, _ = emit(USB_TASKSEND.format(usbsend=hex(us), pdev=hex(U["pdev"]),
-                                         stock=hex(U["datain"] | 1), wrap=hex(dw | 1)))
+        src = USB_SEND
+        if a.pack:
+            esc = lambda t: t.replace("{", "{{").replace("}", "}}")
+            unesc = lambda t: re.sub(r"\{\{(get|memcpy|free|send)\}\}", r"{\1}", t)
+            tail = unesc(esc(USB_SEND_TAIL))
+            assert src.count(tail) == 1
+            src = src.replace(tail, unesc(esc(USB_PACK)))
+            src = src.replace("lit_table: .word {table}\n",
+                              f"lit_table: .word {{table}}\nlit_pbuf:  .word {hex(PACKBUF)}\n")
+            assert "lit_pbuf" in src.split("lit_table")[1]
+        us, _ = emit(src.format(ready=hex(U["ready"]), get=hex(U["get"]), memcpy=hex(U["memcpy"]),
+                                free=hex(U["free"]), send=hex(sends.pop()), table=hex(table)))
+        if a.usbpush or a.upsample is not None or a.hidwake:
+            dw, _ = emit(USB_DATAIN.format(datain=hex(U["datain"]), usbsend=hex(us), cnt=hex(UPS + 0xE0)))
+            ts, _ = emit(USB_TASKSEND.format(usbsend=hex(us), pdev=hex(U["pdev"]),
+                                             stock=hex(U["datain"] | 1), wrap=hex(dw | 1)))
+        else:
+            dw = U["datain"]
+            ts, _ = emit(USB_TASKSEND_TICK.format(usbsend=hex(us)))
         for site in U["sites"]:
             patch_bl(site, ts)
         USB["send"] = us
@@ -2553,16 +4125,298 @@ def main():
             f"(stock 0x{U['datain']:08X}, installed at runtime via pdev 0x{U['pdev']:08X}), "
             f"task hook @ 0x{ts:08X} on {len(U['sites'])} ready checks")
 
+    def add_hidmore():
+        if a.pace or a.hidwake:
+            raise SystemExit("--hidmore replaces the loop delay; not with --pace/--hidwake")
+        site, delay = resolve_pace(blob, base, md, H["callers"][0])
+        L = list(md.disasm(bytes(blob[H["fn"] - base:H["fn"] - base + 40]), H["fn"]))
+        ld = [i for i in L if i.mnemonic == "ldr" and "pc" in i.op_str][:2]
+        lv = [struct.unpack_from("<I", blob, ((i.address + 4) & ~3)
+                                 + int(i.op_str.split("#")[1].rstrip("]"), 16) - base)[0] for i in ld]
+        assert lv[0] == lv[1], [hex(x) for x in lv]
+        hm, _ = emit(HIDMORE.format(mq=hex(lv[0]), st=hex(FAST), delay=hex(delay)))
+        patch_bl(site, hm)
+        print(f"hidmore: loop osDelay(1) @ 0x{site:08X} -> 0x{hm:08X} (calc mail var 0x{lv[0]:08X})")
+
+    def add_frame23():
+        cmp_src, s_ = "", 0x10
+        for lo, hi in F23_RANGES:
+            for i in range(lo, hi):
+                cmp_src += F23_BYTE.format(i=i, s=s_)
+                s_ += 1
+        f23, fc = emit(FRAME23.format(
+            orig=hex(P["frame_ev"] & ~1), memcpy=hex(P["memcpy"]), push=hex(P["ring_push"]),
+            stage=hex(F23_STAGE), extra=hex(F23_EXTRA), pblock=hex(P["pblock"]), img=hex(F23_IMG),
+            st=hex(FAST + 0x60), compare=cmp_src, tag=F23_TAG if a.hold else "",
+            taglits=F23_TAGLITS.format(ring=hex(RING_IDX), arr=hex(ARR)) if a.hold else ""))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(fc, f23) if i.mnemonic == "bl"]
+        assert calls == [P["frame_ev"] & ~1, P["memcpy"], P["memcpy"], P["ring_push"]], \
+            [hex(c) for c in calls]
+        return f23
+
+    def add_ownpos():
+        if not a.safemail or a.coillog or a.framelog or a.upsample is not None or a.tearhold:
+            raise SystemExit("--ownpos needs --safemail and no other calc mail hook")
+        cmp = "".join(OWN_CMP.format(src=0x11 + 10 * i, dst=2 * i) for i in range(10)) +                 "".join(OWN_CMP.format(src=0xBB + 10 * i, dst=0x14 + 2 * i) for i in range(10))
+        if a.ownbtn and not (a.hold and a.rawhold and a.k > 0):
+            raise SystemExit("--ownbtn needs --hold --rawhold and extra cycles")
+        src = OWNPOS_HOOK
+        if a.owncal or a.ownbsw:
+            head = "    ldr  r7, lit_own\n"
+            assert src.count(head) == 1
+            src = src.replace(head, head + ("{bsw}" if a.ownbsw else ""))
+        if a.owncal:
+            import json as _json
+            lut = _json.load(open(a.owncal))
+            ctr = [-0.45 + 0.1 * i for i in range(10)]
+
+            def knots(v, scale):
+                out = []
+                for j in range(11):
+                    x = -0.5 + 0.1 * j
+                    if x <= ctr[0]:
+                        y = v[0]
+                    elif x >= ctr[-1]:
+                        y = v[-1]
+                    else:
+                        i = min(int((x - ctr[0]) / 0.1), 8)
+                        t = (x - ctr[i]) / 0.1
+                        y = v[i] + (v[i + 1] - v[i]) * t
+                    out.append(int(round(y * scale)))
+                return out
+            kx, ky = knots(lut["X"], 1.0), knots(lut["Y"], 0.5)
+            while len(blob) % 4:
+                blob.append(0xFF)
+            tx = base + len(blob)
+            blob.extend(struct.pack("<11h", *kx) + bytes(2))
+            ty = base + len(blob)
+            blob.extend(struct.pack("<11h", *ky) + bytes(2))
+            blob.extend(bytes([0xFF]) * ((-len(blob)) % 0x10))
+            for axis, (st, lit, kq) in {"x": ("    ldrb r1, [r4, #0x0c]\n    adds r1, #4\n", "lit_lx", 973),
+                                       "y": ("    ldrb.w r1, [r4, #0xb6]\n    adds r1, #4\n", "lit_ly", 932)}.items():
+                assert src.count(st) == 1, axis
+                src = src.replace(st, st + f"    ldr  r2, {lit}\n    movw r3, #{kq}\n")
+            c0 = src.index("\ncalc:")
+            c1 = src.index("    .align 2\nlit_own:")
+            src = src[:c0] + CALC_V2 + src[c1:]
+            src = src.replace("lit_own: .word {own}\n", "lit_own: .word {own}\nlit_lx: .word " + hex(tx)
+                              + "\nlit_ly: .word " + hex(ty) + "\n")
+            print(f"owncal: S-curve knots X {kx}, Y {ky} @ 0x{tx:08X}/0x{ty:08X}")
+        if a.btndeb:
+            head = "    ldr  r7, lit_own\n"
+            assert src.count(head) == 1
+            src = src.replace(head, head + OWN_BTNDEB.replace("{deb}", str(a.btndeb)))
+            print(f"btndeb: side buttons debounced over {a.btndeb} results")
+        if a.nosmooth:
+            fsig = bytes.fromhex("0142 01d0 0120 00e0 0020 7047".replace(" ", ""))
+            fl = [m.start() for m in re.finditer(re.escape(fsig), bytes(blob))]
+            fl = [o - 4 for o in fl if blob[o - 3] == 0x49 and blob[o - 2:o] == bytes.fromhex("0968")]
+            assert len(fl) == 1, fl
+            fo = fl[0]
+            lit = ((base + fo + 4) & ~3) + blob[fo] * 4
+            flag = struct.unpack_from("<I", blob, lit - base)[0]
+            assert 0x20000000 <= flag < 0x20040000, hex(flag)
+            head = "    ldr  r7, lit_own\n"
+            assert src.count(head) == 1
+            if a.nosmooth_win == 0:
+                ns = ("    movw r0, #{flo}\n    movt r0, #{fhi}\n    ldr  r1, [r0]\n"
+                      "    bic  r1, r1, #8\n    str  r1, [r0]\n")
+            else:
+                ns = OWN_NOSMOOTH.replace("    movs r0, #16\n", f"    movs r0, #{a.nosmooth_win}\n")
+            src = src.replace(head, head + ns.replace("{flo}", hex(flag & 0xFFFF))
+                              .replace("{fhi}", hex(flag >> 16)))
+            print(f"nosmooth: flag word 0x{flag:08X} (check fn 0x{base + fo:08X}), bit 0x08 off "
+                  + (f"except {a.nosmooth_win} results after a button change" if a.nosmooth_win else "always"))
+        if a.pressgate:
+            assert src.count("{gate}") == 1 and not a.ownanchor
+            pz = OWN_PRESSGATE
+            if a.fastpass:
+                t = "pz_chk:\n"
+                assert pz.count(t) == 1
+                pz = pz.replace(t, t + "    ldrb r0, [r7, #0xf9]\n    cmp  r0, #0\n    bne  pz_upd\n")
+            src = src.replace("{gate}", pz + "{gate}")
+            print("pressgate: 12 fresh results after a button change, drop > 250 + 1.5|v| off the line")
+        if a.phasegate:
+            fr = "    cmp.w r12, #0\n    beq.w stale\n"
+            assert src.count(fr) == 1
+            cnt = ("    ldrb r0, [r7, #0xf4]\n    cmp  r0, #255\n    it   lo\n    addlo r0, #1\n"
+                   "    strb r0, [r7, #0xf4]\n") if a.pressgate else ""
+            ff = OWN_FASTFLAG.replace("{fast}", str(a.fastpass)) if a.fastpass else ""
+            pg = OWN_PHASEGATE.replace("{thr}", str(a.phasegate))
+            if a.fastpass:
+                t = "    cmp  r2, #0xff\n    beq  pg_init\n"
+                assert pg.count(t) == 1
+                pg = pg.replace(t, t + "    ldrb r0, [r7, #0xf9]\n    cmp  r0, #0\n    bne  pg_init\n")
+            src = src.replace(fr, fr + cnt + ff + pg)
+            ps = "pass:\n"
+            assert src.count(ps) == 1
+            src = src.replace(ps, ps + "    movs r0, #0xff\n    strb r0, [r7, #0xca]\n")
+            print(f"phasegate: drop fresh results whose X peak phase jumps > {a.phasegate} deg")
+        if a.ownsrc == "keep":
+            # send the calc's own output unchanged on fresh results
+            m = re.search(r"    add\.w r0, r4, #0x11\n.*?    str  r0, \[r7, #0x2c\]\n", src, re.S)
+            assert m
+            src = src[:m.start()] + "    ldr  r0, [r6, #0x1c]\n    str  r0, [r7, #0x2c]\n" + src[m.end():]
+            m = re.search(r"    add\.w r0, r4, #0xbb\n.*?    str  r0, \[r7, #0x30\]\n", src, re.S)
+            assert m
+            src = src[:m.start()] + "    ldr  r0, [r6, #0x54]\n    str  r0, [r7, #0x30]\n" + src[m.end():]
+            print("ownsrc: keep the calc output (fresh results only)")
+        if a.ownsrc == "wacom":
+            # Wacom's calibrated per-measurement position (calc r8+0xFA4 X, +0x10D8 Y,
+            # internal units; updated on every fresh measurement, ~10 ms ahead of its
+            # smoothed output r8+0x1C/+0x54 = r8+0xFA0 - 2800 / r8+0x10D4 - 2840)
+            xs = ("    add.w r0, r4, #0x11\n    ldrb r1, [r4, #0x0c]\n    adds r1, #4\n"
+                  "    bl   calc\n    subw r0, r0, #1190\n")
+            ys = ("    add.w r0, r4, #0xbb\n    ldrb.w r1, [r4, #0xb6]\n    adds r1, #4\n"
+                  "    bl   calc\n    subw r0, r0, #1180\n")
+            assert src.count(xs) == 1 and src.count(ys) == 1 and not a.owncal
+            src = src.replace(xs, "    addw r0, r8, #0xfa4\n    ldrh r0, [r0]\n    subw r0, r0, #2800\n")
+            src = src.replace(ys, "    addw r0, r8, #0xfa4\n    add.w r0, r0, #0x134\n    ldrh r0, [r0]\n"
+                                  "    subw r0, r0, #2840\n")
+            print("ownsrc: Wacom per-measurement position (r8+0xFA4 / +0x10D8)")
+        if a.ownanchor:
+            if a.ownsrc != "wacom":
+                raise SystemExit("--ownanchor needs --ownsrc wacom")
+            lv = "    blo.w pass\n    mov  r2, r1\n"
+            assert src.count(lv) == 1
+            src = src.replace(lv, lv + "    bl   anc_upd\n")
+            gt = "{gate}"
+            assert src.count(gt) == 1
+            src = src.replace(gt, "    bl   anc_fix\n{gate}")
+            ps = "pass:\n"
+            assert src.count(ps) == 1
+            src = src.replace(ps, ps + "    movs r0, #0\n    strb r0, [r7, #0x91]\n")
+            c0 = src.index("\ncalc:")
+            src = src[:c0] + ANC_SUBS + src[c0:]
+            # keystone relaxes a short branch that went out of range and then shifts
+            # later bl targets: write every label branch 32-bit
+            src = re.sub(r"(?m)^(\s+)(b|beq|bne|blt|bgt|ble|bge|blo|bhs|bhi|bls|bmi|bpl)(\s+)([A-Za-z_]\w*)$",
+                         lambda m: f"{m.group(1)}{m.group(2)}.w{m.group(3)}{m.group(4)}", src)
+            for lit, val in (("lit_own", OWN), ("lit_arr", ARR)):
+                src = re.sub(r"(?m)^(\s+)ldr\s+(r\d+), " + lit + "$",
+                             lambda m, v=val: f"{m.group(1)}movw {m.group(2)}, #{v & 0xFFFF:#x}\n"
+                                              f"{m.group(1)}movt {m.group(2)}, #{v >> 16:#x}", src)
+            assert not re.search(r"(?m)^\s+ldr\s+r\d+, lit_(own|arr)$", src)
+            print("ownanchor: Wacom-output-anchored correction + press-shake substitution")
+        if a.btnkeep:
+            if not (a.pressgate and a.phasegate):
+                raise SystemExit("--btnkeep is written for --pressgate --phasegate")
+            n_d = 0
+            for lbl in ("pg_init:", "pg_ok:", "g_stock:"):
+                t = "    strb r0, [r7, #0x29]\n    b.w  drop\n" + lbl
+                if src.count(t) == 1:
+                    src = src.replace(t, "    strb r0, [r7, #0x29]\n    b.w  gdrop\n" + lbl)
+                    n_d += 1
+            t = "    strb r0, [r7, #0x29]\n    b.w  drop\npz_upd:"
+            assert src.count(t) == 1
+            src = src.replace(t, "    strb r0, [r7, #0x29]\n    b.w  gdrop\npz_upd:")
+            n_d += 1
+            # stale results: a button change is sent (last position) like a level change
+            st = "    ldrb r0, [r7, #0x28]\n    cmp  r0, r2\n    beq.w drop\n"
+            assert src.count(st) == 1
+            src = src.replace(st, "    ldrb r0, [r6, #2]\n    and  r0, r0, #7\n    ldrb r1, [r7, #0xe4]\n"
+                                  "    cmp  r0, r1\n    bne.w gsend\n" + st)
+            ps = "pass:\n"
+            assert src.count(ps) == 1
+            src = src.replace(ps, OWN_GDROP + ps)
+            sd = "\nsend:\n"
+            assert src.count(sd) == 1
+            src = src.replace(sd, sd + OWN_SENDREC + "send_nr:\n")
+            print(f"btnkeep: {n_d} gate drops keep button changes; stale results send button changes")
+        if a.pressgate and not a.ownanchor:
+            src = re.sub(r"(?m)^(\s+)(b|beq|bne|blt|bgt|ble|bge|blo|bhs|bhi|bls|bmi|bpl)(\s+)([A-Za-z_]\w*)$",
+                         lambda m: f"{m.group(1)}{m.group(2)}.w{m.group(3)}{m.group(4)}", src)
+            for lit, val in (("lit_own", OWN), ("lit_arr", ARR)):
+                src = re.sub(r"(?m)^(\s+)ldr\s+(r\d+), " + lit + "$",
+                             lambda m, v=val: m.group(1) + "movw " + m.group(2) + ", #" + hex(v & 0xFFFF) + chr(10)
+                             + m.group(1) + "movt " + m.group(2) + ", #" + hex(v >> 16), src)
+        oh, oc = emit(src.format(compare=cmp, free=hex(H["free"]), own=hex(OWN), bsw=OWN_BSW,
+                                         minlvl=a.ownlvl, stalemax=a.ownstale,
+                                         btn=OWN_BTN.replace("{btnmask}", "7") if a.ownbtn else "",
+                                         btnlits=f"lit_arr: .word {hex(ARR)}" if (a.ownbtn or a.owngate) else "",
+                                         gate=(OWN_GATE.replace("    b.w  drop\ng_stock:", "    b.w  gdrop\ng_stock:")
+                                               if a.btnkeep else OWN_GATE) if a.owngate else ""))
+        ext = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(oc, oh)
+               if i.mnemonic in ("bl", "b.w") and not oh <= int(i.op_str.lstrip("#"), 16) < oh + len(oc)]
+        assert ext == [H["free"]], [hex(x) for x in ext]
+        assert blob[csig + 12 - base:csig + 16 - base] == bytes.fromhex("28683146")
+        patch_bl(csig + 12, oh)
+        print(f"ownpos @ 0x{oh:08X} ({len(oc)} B) on calc mail site 0x{csig + 12:08X}, state 0x{OWN:08X}")
+
+    def add_framelog():
+        if a.ownpos or a.upsample is not None or a.tearhold or a.coillog or a.mailhold:
+            raise SystemExit("--framelog hooks the calc mail site; use it alone")
+        cl, cc = emit(FRAMELOG_HOOK.format(memcpy=hex(P["memcpy"]), idx=hex(COILLOG_IDX),
+                                           log=hex(COILLOG)))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(cc, cl) if i.mnemonic == "bl"]
+        assert calls == [P["memcpy"]], [hex(c) for c in calls]
+        assert blob[csig + 12 - base:csig + 16 - base] == bytes.fromhex("28683146")
+        patch_bl(csig + 12, cl)
+        print(f"framelog @ 0x{cl:08X} on calc mail site 0x{csig + 12:08X}, 16 x 0x800 at "
+              f"0x{COILLOG:08X}, seq 0x{COILLOG_IDX:08X}")
+
+    def add_calclog():
+        cl, cc = emit(CALCLOG_HOOK.format(memcpy=hex(P["memcpy"]), idx=hex(COILLOG_IDX), log=hex(COILLOG),
+                                          calc=hex(CALCLOG_BASE), n=hex(CALCLOG_N)))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(cc, cl) if i.mnemonic == "bl"]
+        assert calls == [P["memcpy"]] * 3, [hex(c) for c in calls]
+        assert blob[csig + 12 - base:csig + 16 - base] == bytes.fromhex("28683146")
+        patch_bl(csig + 12, cl)
+        print(f"calclog @ 0x{cl:08X} on calc mail site 0x{csig + 12:08X}, 4 x 0x1800 at 0x{COILLOG:08X}")
+
+    def add_poslog():
+        cp = ""
+        for i in range(10):
+            cp += f"    ldrh.w r2, [r3, #{0x11 + 10 * i}]\n    strh.w r2, [r4, #{0x1c + 2 * i}]\n"
+            cp += f"    ldrh.w r2, [r3, #{0xbb + 10 * i}]\n    strh.w r2, [r4, #{0x30 + 2 * i}]\n"
+        cl, cc = emit(POSLOG_HOOK.format(idx=hex(COILLOG_IDX), log=hex(COILLOG), copy=cp))
+        assert blob[csig + 12 - base:csig + 16 - base] == bytes.fromhex("28683146")
+        patch_bl(csig + 12, cl)
+        print(f"poslog @ 0x{cl:08X} ({len(cc)} B) on calc mail site 0x{csig + 12:08X}")
+
+    def add_watch():
+        addrs = [int(x, 0) for x in a.watch.split(",")]
+        addrs += [addrs[-1]] * (3 - len(addrs))
+        dm, dc = emit(WATCH_DM.format(w=hex(WATCH)))
+        old = struct.unpack_from("<I", blob, 0x30)[0]
+        ins = next(md.disasm(bytes(blob[(old & ~1) - base:(old & ~1) - base + 2]), old & ~1))
+        assert ins.mnemonic == "bx" and ins.op_str == "lr", ins
+        struct.pack_into("<I", blob, 0x30, dm | 1)
+        ws, _ = emit(WATCH_SETUP.format(w=hex(WATCH), magic=hex(WATCH_MAGIC), a0=hex(addrs[0]),
+                                        a1=hex(addrs[1]), a2=hex(addrs[2])))
+        assert blob[csig + 12 - base:csig + 16 - base] == bytes.fromhex("28683146")
+        patch_bl(csig + 12, ws)
+        print(f"watch: DebugMon vector 0x{old:08X} -> 0x{dm | 1:08X}, arm hook 0x{ws:08X}, "
+              f"addresses {', '.join(hex(x) for x in addrs)}, log 0x{WATCH:08X}")
+
+    def add_coillog():
+        if a.ownpos or a.framelog or a.upsample is not None or a.tearhold or a.mailhold:
+            raise SystemExit("--coillog hooks the calc mail site; use it alone")
+        cl, cc = emit(COILLOG_HOOK.format(memcpy=hex(P["memcpy"]), idx=hex(COILLOG_IDX),
+                                          log=hex(COILLOG)))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(cc, cl) if i.mnemonic == "bl"]
+        assert calls == [P["memcpy"]] * 2, [hex(c) for c in calls]
+        assert blob[csig + 12 - base:csig + 16 - base] == bytes.fromhex("28683146")
+        patch_bl(csig + 12, cl)
+        print(f"coillog @ 0x{cl:08X} on calc mail site 0x{csig + 12:08X}, log 0x{COILLOG:08X}, "
+              f"seq 0x{COILLOG_IDX:08X}")
+
     if a.k == 0:
         # stock tracking loop (v1.65: 3 real frames per ~5 ms, pressure and side
         # buttons read every loop) with the 1 kHz output stage on all the time
         # Without --upsample only real reports are sent: every calc result goes out
         # as soon as the endpoint frees (--usbpush), none are repeated.
-        a.safemail = a.safemail or a.upsample is not None or a.usbpush or a.hidwake or a.pace
+        a.safemail = a.safemail or a.upsample is not None or a.usbpush or a.hidwake or a.pace \
+            or a.pack or a.hidmore
         csig = base + find1(CALC_SIG, "calc mail put")
         H = resolve_hid(blob, base, md)
         if a.upsample is not None:
-            mts, _ = emit(MAILTS_PUT.format(ups=hex(UPS)))
+            msrc = MAILTS_PUT
+            if a.perscan:
+                msrc = PERSCAN.replace("{", "{{").replace("}", "}}") + msrc
+            mts, _ = emit(msrc.format(ups=hex(UPS)))
+            if a.perscan:
+                print("perscan: mail copy X/Y = Wacom per-scan position (r8+0xFA4 / +0x10D8)")
             patch_bl(csig + 12, mts)
             psite = base + find1(POP_SIG, "calc ring pop") + 10
             pop = bl_target(psite)
@@ -2592,6 +4446,18 @@ def main():
             patch_bl(csig + 16, th)
             print(f"tearhold @ 0x{th:08X} on calc mail put 0x{csig + 16:08X} (put 0x{put:08X}, "
                   f"free 0x{H['free']:08X}), state 0x{TEAR:08X}")
+        if a.ownpos:
+            add_ownpos()
+        if a.framelog:
+            add_framelog()
+        if a.coillog:
+            add_coillog()
+        if a.calclog:
+            add_calclog()
+        if a.poslog:
+            add_poslog()
+        if a.watch:
+            add_watch()
         if a.nomedian:
             # "bl median" after "ldrh r1,[r7,#4]; add.w r0,r6,#0x14" (pressure) and
             # "ldrh r1,[r7,#0xa]; add.w r0,r6,#0x18" (second channel) -> mov r0, r1; nop
@@ -2602,8 +4468,17 @@ def main():
                 assert ins.mnemonic == "bl", ins
                 blob[site - base:site - base + 4] = bytes.fromhex("084600bf")
                 print(f"nomedian: {what} @ 0x{site:08X} ({ins.op_str}) -> mov r0, r1")
-        if a.usbpush or a.hidwake:
+        if a.usbpush or a.hidwake or a.pack:
             add_usbpush()
+        if a.hidmore:
+            add_hidmore()
+        if a.frame23:
+            # stock table in place: step 23's event (the frame handler) -> gated push
+            f23 = add_frame23()
+            o23 = T - base + 12 * 23
+            assert struct.unpack_from("<I", blob, o23)[0] == P["frame_ev"]
+            struct.pack_into("<I", blob, o23, f23 | 1)
+            print(f"frame23: stock step 23 event -> 0x{f23 | 1:08X}")
         if a.hidwake:
             if a.pace:
                 raise SystemExit("--hidwake replaces --pace")
@@ -2625,8 +4500,8 @@ def main():
         raise SystemExit("--upsample needs --hold --rawhold --mailhold")
     stamp_call = ""
     a.safemail |= a.upsample is not None
-    if (a.usbpush or a.pace) and not a.safemail:
-        raise SystemExit("--usbpush/--pace need --safemail")
+    if (a.usbpush or a.pace or a.pack or a.hidmore) and not a.safemail:
+        raise SystemExit("--usbpush/--pace/--pack/--hidmore need --safemail")
     csig = base + find1(CALC_SIG, "calc mail put") if a.safemail else None
     H = resolve_hid(blob, base, md) if a.safemail else None     # before any patch
     if a.upsample is not None:
@@ -2722,6 +4597,23 @@ def main():
     else:
         ev_f, c1 = emit(EV_F.format(arm_s1=hex(R[26][0] & ~1), frame=hex(P["frame_ev"] & ~1)))
     act_s2, c2 = emit(ACT_S2.format(arm_s2=hex(R[26][1] & ~1), s2a=hex(R[27][1] & ~1)))
+    ev_fnp = None
+    if a.nopushx:
+        if a.hold or a.s2only or a.interleave or a.s1only or a.burst26 or a.s2short or a.ownpos:
+            raise SystemExit("--nopushx is for the plain k-cycle schedule")
+        ev_fnp, cn = emit(EV_FNP.format(arm_s1=hex(R[26][0] & ~1), frame=hex(P["frame_ev"] & ~1),
+                                        npx=hex(NPX)))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(cn, ev_fnp) if i.mnemonic == "bl"]
+        assert calls == [R[26][0] & ~1, P["frame_ev"] & ~1], [hex(c) for c in calls]
+        rp = P["ring_push"]
+        assert blob[rp - base:rp - base + 4] == bytes.fromhex("014630b5"), "ring push prologue"
+        pt, _ = emit(PUSH_TRAMP_NPX.format(cont=hex(rp + 4)))
+        pg, _ = emit(PUSH_GATE_NPX.format(tramp=hex(pt), npx=hex(NPX)))
+        bw, _ = ks.asm(f"b.w #{hex(pg)}", rp)
+        assert len(bw) == 4
+        blob[rp - base:rp - base + 4] = bytes(bw)
+        print(f"nopushx: extra S1-done EV_FNP 0x{ev_fnp:08X}, ring push 0x{rp:08X} gate 0x{pg:08X}, "
+              f"state 0x{NPX:08X} (+0 flag, +4 extra S1 done, +8 pushes dropped)")
     for name, addr, code in (("EV_F", ev_f, c1), ("ACT_S2", act_s2, c2)):
         print(f"{name} @ 0x{addr:08X}:")
         for i in md.disasm(code, addr):
@@ -2800,6 +4692,8 @@ def main():
             if a.hold and a.log:
                 slot[0] += 1
                 return tagged(kind, slot[0])
+            if a.nopushx:
+                return (ev_fnp if kind == "f" else P["set2_ev"]) | 1
             if kind == "f":
                 return (ev_f0 if f else ev_f) | 1
             if not a.hold:
@@ -2823,14 +4717,29 @@ def main():
                 else:
                     recs.append([ev, act, nb(23 if last else i + per, R[29][2][1])])
             continue
+        if a.s1only:
+            # coordinate-only extra cycle: S1a -> S1b -> S1 done (push) + next S1a
+            cyc = [[R[23][0], R[23][1]], [ev_for("f"), R[29][1]]]
+            i, per = len(recs), len(cyc)
+            for n, (ev, act) in enumerate(cyc):
+                if n < per - 1:
+                    recs.append([ev, act, nb(i + n + 1, i + n + 1)])
+                else:
+                    recs.append([ev, act, nb(23 if last else i + per, R[29][2][1])])
+            continue
         cyc = [[R[23][0], R[23][1]]]
         if a.burst26:
             cyc += [[ev_for("f"), R[26][1]], [R[27][0], R[27][1]]]
         else:
             cyc += [[ev_for("f"), act_s2 | 1]]
-        for m in range(a.s2):
-            cyc += [[ev_for("28"), R[28][1]],
-                    [ev_for("29"), R[29][1] if m == a.s2 - 1 else act_s2 | 1]]
+        if a.s2short:
+            # only the short S2 pass a (step 27 action, ~0.19 ms) before the next S1:
+            # its event (the pass-a handler) programs S1a directly, S2 pass b is skipped
+            cyc += [[ev_for("28"), R[29][1]]]
+        else:
+            for m in range(a.s2):
+                cyc += [[ev_for("28"), R[28][1]],
+                        [ev_for("29"), R[29][1] if m == a.s2 - 1 else act_s2 | 1]]
         i, per = len(recs), len(cyc)
         for n, (ev, act) in enumerate(cyc):
             if n < per - 1:
@@ -2861,10 +4770,66 @@ def main():
         add_upsample(always=False)
     if a.safemail:
         add_safemail()
-    if a.upsample is not None or a.usbpush:
+    if a.framelog:
+        add_framelog()
+    if a.coillog:
+        add_coillog()
+    if a.ownpos:
+        if a.hold and not a.rawhold or a.mailhold:
+            raise SystemExit("--ownpos with extra cycles needs the mail site free (--rawhold, no --mailhold)")
+        add_ownpos()
+    if a.upsample is not None or a.usbpush or a.pack:
         add_usbpush()
     if a.upsample is not None or a.pace:
         add_pace()
+    if a.hidmore:
+        add_hidmore()
+    if a.nopushx:
+        sv, sc = emit(S2_SAVE.format(orig=hex(recs[29][0] & ~1), memcpy=hex(P["memcpy"]),
+                                     keep=hex(S2KEEP), n=hex(S2KEEP_N)))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(sc, sv) if i.mnemonic == "bl"]
+        assert calls == [recs[29][0] & ~1, P["memcpy"]], [hex(c) for c in calls]
+        recs[29][0] = sv | 1
+        rs, rc = emit(S2_REST.format(orig=hex(P["set2_ev"] & ~1), memcpy=hex(P["memcpy"]),
+                                     keep=hex(S2KEEP), n=hex(S2KEEP_N)))
+        calls = [int(i.op_str.lstrip("#"), 16) for i in md.disasm(rc, rs) if i.mnemonic == "bl"]
+        assert calls == [P["set2_ev"] & ~1, P["memcpy"]], [hex(c) for c in calls]
+        nrest = 0
+        for n in range(NREC, len(recs)):
+            # an extra cycle's last S2 event (its action leads back to S1 pass a)
+            if recs[n][0] == P["set2_ev"] | 1 and recs[n][1] == R[29][1]:
+                recs[n][0] = rs | 1
+                nrest += 1
+        if a.btnhold:
+            csite = base + find1(CALC_SIG, "calc mail put") + 12
+            assert blob[csite - base:csite - base + 4] == bytes.fromhex("28683146")
+            bh, bc = emit(BTNHOLD_HOOK.format(n=a.btnhold, bh=hex(BTNHOLD)))
+            assert not [i for i in md.disasm(bc, bh) if i.mnemonic == "bl"]
+            patch_bl(csite, bh)
+            print(f"btnhold: {a.btnhold} results @ 0x{bh:08X} on calc mail site 0x{csite:08X}, "
+                  f"state 0x{BTNHOLD:08X}")
+        print(f"s2keep: stock 29 saves S2 blocks (0x{S2KEEP_N:X} B @ 0x{S2KEEP:08X}) 0x{sv:08X}, "
+              f"{nrest} extra 29' restore 0x{rs:08X}")
+    if a.frame23:
+        f23 = add_frame23()
+        n23 = 0
+        # --nopushx: extra frames must not reach the calc -> stock step 23 only
+        for n in [23] + ([] if a.nopushx else list(range(NREC, len(recs)))):
+            if recs[n][0] == P["frame_ev"] and recs[n][1] == R[23][1]:
+                recs[n][0] = f23 | 1
+                n23 += 1
+        print(f"frame23: hook @ 0x{f23:08X} on {n23} set-1 pass-a events (stock 23 + extra cycles)"
+              + (", tagged stale" if a.hold else ""))
+
+    if a.ownbsw:
+        if not (a.ownpos and a.k > 0):
+            raise SystemExit("--ownbsw needs --ownpos and extra cycles")
+        bw, _ = emit(STEP29_BSW.format(inner=hex(recs[29][0] & ~1), own=hex(OWN)))
+        recs[29][0] = bw | 1
+        t = bytearray(recs[29][2])
+        t[2] = 23
+        recs[29][2] = bytes(t)
+        print(f"ownbsw: stock step 29 event -> 0x{bw:08X} (alt3 -> 23 while a side button is held)")
 
     if a.protect:
         wraps = {}
@@ -2948,6 +4913,20 @@ def main():
         site = find1(bytes.fromhex("387960f302017889"), "button copy in calc output")
         blob[site:site + 2] = bytes.fromhex("0020")
         print(f"nobuttons: 0x{base + site:08X} ldrb r0, [r7, #4] -> movs r0, #0")
+    if a.nobtnsrc:
+        # pen data word decode (13-bit and 11-bit pressure variants): the bits above
+        # the pressure are the side buttons ("lsrs r1, r1, #13" / "#11"); make them
+        # 0 where they are first extracted, so no later stage (debounce, raw hold,
+        # 0x200005CC copy) ever sees a button
+        sig = re.compile(rb"\xc1\xf3\x0c\x00(\x49\x0b)\x05\xe0\xc1\xf3\x0a\x02\x50\x0a"
+                         rb"\x40\xea\x82\x00(\xc9\x0a)\x68\x83", re.S)
+        m = list(sig.finditer(blob))
+        if len(m) != 1:
+            raise SystemExit(f"pen word decode: {len(m)} signature hits - aborting")
+        for g in (1, 2):
+            blob[m[0].start(g):m[0].start(g) + 2] = bytes.fromhex("0021")
+        print(f"nobtnsrc: 0x{base + m[0].start(1):08X} lsrs r1,#13 and 0x{base + m[0].start(2):08X} "
+              f"lsrs r1,#11 -> movs r1, #0")
 
     if a.version is not None:
         vid = blob.find(struct.pack("<HH", 0x056A, 0x0357))

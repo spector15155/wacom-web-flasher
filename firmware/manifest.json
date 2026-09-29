@@ -15,7 +15,7 @@
       "title": "v2.45 (recommended)",
       "recommended": true,
       "kind": "custom",
-      "summary": "v1.65 + the missing 4th frame per loop when the coil window is unchanged. ~730 real reports/s, stock pressure, buttons and filters.",
+      "summary": "Recommended. Stock pen scanning (the pen is measured ~206 times/s) with one change: Wacom's calc also runs on the set-1 pass-a frame when the coil window is unchanged, so every measurement loop gives 4 reports instead of 3 (~730 reports/s). This removes v1.65's 'every 4th report missing' gaps in fast drags. The extra reports are Wacom's smoothed in-between positions. Stock pressure, side buttons, hover and filters.",
       "images": [
         {
           "slot": "a",
@@ -31,7 +31,89 @@
           "size": 335360,
           "sha256": "5a720d36964e04b5f2fdceffd652d9cc2b5cbeea843b914ccfb269fee8f47df4"
         }
-      ]
+      ],
+      "lag": "~7 ms"
+    },
+    {
+      "file": "pth660_v322_2000hz.pkg",
+      "size": 679149,
+      "sha256": "aa969ce4d71a1d92a76bc870b3ee3024740fea36e3d0edd37cac6675adfec03f",
+      "id": "v3.22",
+      "title": "v3.22 (2000 Hz, low latency)",
+      "recommended": false,
+      "kind": "custom",
+      "summary": "~1900-2000 reports/s: two reports every 1 ms, sent together in one USB packet (the PC splits them). Stock pen scanning and Wacom's own processing exactly as v2.45 (stock pressure, side buttons, hover, filters), with a new output stage written in C that sends evenly spaced reports on the path of Wacom's own positions (each re-timed by when it was measured). No fixed delay: when Wacom's newest position is a few ms old, the report continues along the pen's current direction for at most 4 ms (not in far hover), so lag is lower than v2.45; sudden stops or sharp turns can overshoot slightly (~0.4 mm at a fast stroke) for a few ms. Extra smoothing only where Wacom's output is rough: the top/left edge strip at slow speed and a spike filter at the limit of hover height.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0322",
+          "base": "0x08040000",
+          "size": 338944,
+          "sha256": "f498b4e0a13fbe877ffb88a79d5f1d9039b950c21238837fbce590fd0c9eef9d"
+        },
+        {
+          "slot": "b",
+          "version": "0x0322",
+          "base": "0x080A0000",
+          "size": 339456,
+          "sha256": "6774c43650b7be7bc32754a547f2a43bd27ed0719df58bff2418ae72f9e7890a"
+        }
+      ],
+      "lag": "~6.5 ms"
+    },
+    {
+      "file": "pth660_v321_1000hz.pkg",
+      "size": 679121,
+      "sha256": "d260869d09be6fa5a6e3829f92191faca5db2ab5b8c68a5a03685006f2674acb",
+      "id": "v3.21",
+      "title": "v3.21 (1000 Hz, low latency)",
+      "recommended": false,
+      "kind": "custom",
+      "summary": "1000 reports/s, one every 1 ms. Stock pen scanning and Wacom's own processing exactly as v2.45 (stock pressure, side buttons, hover, filters), with a new output stage written in C that sends evenly spaced reports on the path of Wacom's own positions (each re-timed by when it was measured). No fixed delay: when Wacom's newest position is a few ms old, the report continues along the pen's current direction for at most 4 ms (not in far hover), so lag is lower than v2.45; sudden stops or sharp turns can overshoot slightly (~0.4 mm at a fast stroke) for a few ms. Extra smoothing only where Wacom's output is rough: the top/left edge strip at slow speed and a spike filter at the limit of hover height.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0321",
+          "base": "0x08040000",
+          "size": 338944,
+          "sha256": "19784ca87df3f3308d7a18df9e3fa254d76b155e3b5c26a37e251a0d1e2b82c5"
+        },
+        {
+          "slot": "b",
+          "version": "0x0321",
+          "base": "0x080A0000",
+          "size": 339456,
+          "sha256": "505c95df196d03b3afd6d7fd555eed58bf654e3b28c94338e4c45e212fd048e8"
+        }
+      ],
+      "lag": "~6.4 ms"
+    },
+    {
+      "file": "pth660_v299_1000hz.pkg",
+      "size": 673527,
+      "sha256": "f0b65580425a9167880759d25fa4f9668ba417cb4e5e444a28fc406fcf60ef4a",
+      "id": "v2.99",
+      "title": "v2.99 (1000 Hz, interpolated)",
+      "recommended": false,
+      "kind": "custom",
+      "summary": "Stock pen scanning (~206 real positions/s, same as stock) with a new output stage: exactly one report per 1 ms USB tick (1000 evenly spaced reports/s instead of v2.45's bunched ~730). Each report lies on the straight line between the two newest real measurements (Wacom's per-scan position, without its 4-report smoothing); no prediction, never beyond the newest real point. Stock pressure, side buttons and hover. Slightly more lag than v2.45: the 6 ms fill delay is what keeps every report between two real measurements.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0299",
+          "base": "0x08040000",
+          "size": 336128,
+          "sha256": "670d853910e195207daab66ea22060486920451de1e9bd45e46ce25c24cedaef"
+        },
+        {
+          "slot": "b",
+          "version": "0x0299",
+          "base": "0x080A0000",
+          "size": 336640,
+          "sha256": "218d94dcd553a8014c6efcbcab88ee9ca206e5fdda420abda5a674b2a104a054"
+        }
+      ],
+      "lag": "~9 ms"
     },
     {
       "file": "pth660_v165_600hz.pkg",
@@ -41,7 +123,7 @@
       "title": "v1.65 (600 Hz)",
       "recommended": false,
       "kind": "custom",
-      "summary": "3 frames per scan loop, ~600 real reports/s. Stable fallback; has the 'every 4th report missing' pattern in fast drags.",
+      "summary": "Stock pen scanning; Wacom's calc also runs after both S2 passes, so every measurement loop gives 3 reports (~600 reports/s) instead of 1. The extra reports are Wacom's smoothed in-between positions. Stable fallback, but in fast drags every 4th report is missing (fixed in v2.45).",
       "images": [
         {
           "slot": "a",
@@ -57,7 +139,8 @@
           "size": 334848,
           "sha256": "8c5c4f0f1a8a6d65dbd40df1ef06fcb84ebd30922d1a3d1a99b55fd34f2c5bcf"
         }
-      ]
+      ],
+      "lag": "~8 ms"
     },
     {
       "file": "pth660_stock_v151_v152.pkg",
@@ -67,7 +150,7 @@
       "title": "Wacom stock v1.51 / v1.52",
       "recommended": false,
       "kind": "stock",
-      "summary": "Original Wacom firmware (~200 reports/s). Use to restore the tablet to factory firmware.",
+      "summary": "Original Wacom firmware. Measures the pen ~206 times/s and sends one report per measurement (~200 reports/s). Wacom's 4-report smoothing then spans ~4 measurements, which makes it the laggiest option. Use it to restore the tablet to factory firmware.",
       "images": [
         {
           "slot": "a",
@@ -83,33 +166,8 @@
           "size": 334336,
           "sha256": "4442c7cf83c4879c5171d2f4d39a613c346e8b5ae4b02251ea9dc4a0ea1c4e4c"
         }
-      ]
-    },
-    {
-      "file": "pth660_v249_1000hz_nobuttons.pkg",
-      "size": 673065,
-      "sha256": "2c96361f837edb397775b292616cf6492de666e3cf7cd88ca6b24d9adef13218",
-      "id": "v2.49",
-      "title": "v2.49 (~1000 Hz, side buttons broken)",
-      "recommended": false,
-      "kind": "experimental",
-      "summary": "~900-1000 real position reports/s via extra position cycles. Pressure real but updates ~37 Hz. Side buttons broken. Holding a side button can make the cursor jitter.",
-      "images": [
-        {
-          "slot": "a",
-          "version": "0x0249",
-          "base": "0x08040000",
-          "size": 335872,
-          "sha256": "20c7363aa9ee33fe634b32e822056a5a19175bad22a1c585d79d385e6a3396e9"
-        },
-        {
-          "slot": "b",
-          "version": "0x0249",
-          "base": "0x080A0000",
-          "size": 336384,
-          "sha256": "e35d5f45deef4d2a4e84f160c5ddc265fbd26fa9f9414cccf2eb96f2c7043108"
-        }
-      ]
+      ],
+      "lag": "~13 ms"
     }
   ]
 }
