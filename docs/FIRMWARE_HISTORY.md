@@ -11,7 +11,8 @@ v1.65 and v2.99 are older steps kept in the flasher under "Older builds".
 | **v2.45** (recommended) | more Wacom runs | ~200 | ~730 | ~7 ms |
 | v2.99 (older, replaced by v3.29) | even output | ~200 | 1000 | ~9 ms |
 | v3.29 / v3.28 | even output | ~200 | 1000 / 2000 | ~8.5 / ~9 ms |
-| v3.62 | two measurements | ~400 | ~400 | ~7-8 ms |
+| **v3.62** (recommended) | two measurements | ~400 | ~400 | ~7-8 ms |
+| v3.85 | two measurements + more Wacom runs | ~400 | ~750 | ~7 ms |
 | v3.78 (experimental) | two measurements + more Wacom runs | ~400 | ~1500 | ~7-8 ms |
 
 ## The stock scan
@@ -78,7 +79,7 @@ its 4-result moving average); the HID task sends one report on every 1 ms tick, 
 the two newest real positions at "now - 6 ms" (never past the newest point). Measured 997 reports/s in range. v3.29
 does the same job with better timing. Build: `make_cycles.py --k 0 --upsample 6 --perscan`.
 
-## v3.62 (~400 Hz): two measurements
+## v3.62 (~400 Hz, recommended): two measurements
 
 `firmware/pth660_v362_400hz.pkg`. Base: the v1.61 frame setup (`make_frame2.py --steps 29 --calc1` on the stock
 images, `build/base/slot_?_v161_f29.bin`): Wacom's calc gets a frame after step 24 (S1) and after step 29 (S2),
@@ -108,6 +109,25 @@ Measured on one tablet: ~400 reports/s at any speed, no dropped reports while th
 Build (byte-identical; needs arm-none-eabi-gcc): `python build/make_s2c.py --slot a --in
 build/base/slot_a_v161_f29.bin --out slot_a_v362.bin --version 0x0362 --output --minimal --s2norm --layout1 --lean
 --mawin 4 --mahover 4` (same for slot b), then `make_pkg.py`.
+
+## v3.85 (~750 Hz): v2.45 + the second measurement
+
+`firmware/pth660_v385_750hz.pkg`, sources `build/v385/`. v2.45 exactly (frames to Wacom's calc after steps 23 when
+the coil window is unchanged, 24, 28 and 29; Wacom's own reports through the stock HID path, ~750/s, one per USB poll;
+Wacom's stock filter table, so drawing averages 4 results = one loop and hover keeps v2.45's 4-12), plus the S2
+second measurement as in v3.62 (`--s2norm --layout1`) with v3.78's quality checks (`--s2gate 2000`: strong signal,
+same coil within +-10 %, stock S2 in the top / left edge window). With a 4-result window spanning exactly one loop,
+every step compares like with like one loop apart, so the steps stay even whatever mix of S1 / S2 results the loop
+has. `--restore-ev`: S1's own profile entries go back into the work area at the next sensor event, before the next
+loop's step-23 frame reuses them. No output hook, no logs, no diagnostic counters (`--lean`).
+
+Measured on one tablet: ~730-790 reports/s; still test hover 9.5 / tip 1.4 counts rms (v2.45 23.8 / 21.6); ruler
+diagonals 8.9 rms (v2.45 14.6), short-range jitter 3.5; second measurement used in ~130-180 of ~200 loops/s.
+
+Build (byte-identical; needs arm-none-eabi-gcc): `python build/make_frame23.py --slot a --in
+build/base/slot_a_v165_600hz.bin --out slot_a_v245.bin --version 0x0245`, then in `build/v385/`: `python make_s2c.py
+--slot a --in slot_a_v245.bin --out slot_a_v385.bin --version 0x0385 --s2norm --layout1 --s2gate 2000 --restore-ev
+--lean` (same for slot b), then `../make_pkg.py`.
 
 ## v3.78 (~1500 Hz, experimental): two measurements + more Wacom runs
 

@@ -240,7 +240,7 @@ function chooseStep() {
         : fw.kind === "stock" ? '<span class="tag">factory</span>' : "";
       const installed = ["a", "b"].filter((s) => fw.images.some((im) => parseInt(im.version, 16) === info.versions[s]));
       const where = installed.length ? `<span class="tag">in slot ${installed.map((s) => s.toUpperCase()).join(" + ")}</span>` : "";
-      const checked = (wz.fw ? wz.fw === fw : fw.recommended) ? "checked" : "";
+      const checked = (wz.fw ? wz.fw === fw : fw === firmwareList.find((f) => f.recommended)) ? "checked" : "";
       const lag = fw.lag ? `<span class="tag" title="Estimated average delay from pen movement to the USB report (PC not included)">lag ${esc(fw.lag)}</span>` : "";
       const method = fw.method ? `<span class="tag method" title="${esc(METHOD_INFO[fw.method] || "")}">${esc(fw.method)}</span>` : "";
       return `<label class="opt"><input type="radio" name="fw" value="${i}" ${checked}>
@@ -258,7 +258,7 @@ function chooseStep() {
     ${older.length ? `<details class="older" ${olderOpen}><summary>Older builds (replaced by newer ones, kept for reference)</summary>
       <div class="choice">${older.map(([fw, i]) => option(fw, i)).join("")}</div></details>` : ""}
     <p class="note info">Lag = estimated average delay from pen movement to the tablet's USB report (the PC adds its own).
-      v3.62 and v3.78 measure the pen ~2 x 201 times per second, all other builds ~201; higher report rates are
+      v3.62, v3.78 and v3.85 measure the pen ~2 x 201 times per second, all other builds ~201; higher report rates are
       positions between measured ones (no prediction).<br>
       Three methods: <b>more Wacom runs</b> (Wacom's calculation runs several times per measurement: smaller cursor
       steps), <b>even output</b> (reports at exact 1 ms / 0.5 ms intervals between measured positions) and

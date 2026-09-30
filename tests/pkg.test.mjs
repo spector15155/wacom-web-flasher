@@ -25,8 +25,8 @@ test("manifest: every package matches its sha256 and parses", async () => {
   }
 });
 
-test("manifest: exactly one recommended package", () => {
-  assert.equal(manifest.firmware.filter((f) => f.recommended).length, 1);
+test("manifest: at least one recommended package, the first one is the default", () => {
+  assert.ok(manifest.firmware.filter((f) => f.recommended).length >= 1);
 });
 
 for (const [file, g] of Object.entries(golden).filter(([k]) => !k.startsWith("_"))) {

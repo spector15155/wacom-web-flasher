@@ -8,6 +8,42 @@
   },
   "firmware": [
     {
+      "file": "pth660_v362_400hz.pkg",
+      "size": 675074,
+      "sha256": "7432f83f8d17c2611b453c181217707d089aa8d9417f6d24613bc35f6290f716",
+      "id": "v3.62",
+      "title": "v3.62 (~400 Hz, 2 real measurements per loop)",
+      "recommended": true,
+      "kind": "custom",
+      "summary": "Two real position measurements per scan loop instead of one, ~400 reports/s, evenly spaced. Besides the normal position scan (S1), the pen-data scan (S2) listens on the neighbour coils of one axis while the other axis keeps reading the pen's bits, so pressure, buttons and hover stay Wacom's own. Each neighbour reading is divided by the other axis's peak reading of the same burst, and the result goes into Wacom's own position calculation as a second measurement (skipped when unsafe, e.g. while the pen crosses to the next coil). Wacom's calc gets only the S1 and S2 frames, averaged over a constant 4 results, and exactly one report is sent per frame: no re-timing, interpolation or prediction. Short hover signal dips (Wacom clears 'in range' while still tracking) are passed on as in range for up to 150 ms.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0362",
+          "base": "0x08040000",
+          "size": 336896,
+          "sha256": "8826e3e6bfbd7a9d9d1739048447b89560ac85d89698770d3b7967da42eb6081"
+        },
+        {
+          "slot": "b",
+          "version": "0x0362",
+          "base": "0x080A0000",
+          "size": 337408,
+          "sha256": "a4beb391869c4a326c4770b557c18e37f8bdf86158f12294ea11992d2da2eb5d"
+        }
+      ],
+      "lag": "~7-8 ms",
+      "short": "Method: two measurements. The pen-data part of each scan also locates the pen, so it is measured twice per scan (~400 times/s). Exactly one report per measurement (~400/s, evenly spaced), nothing added in between.",
+      "method": "two measurements",
+      "howto": [
+        "m4",
+        "m4a",
+        "m4b",
+        "m4c",
+        "m5"
+      ]
+    },
+    {
       "file": "pth660_v245_best.pkg",
       "size": 670951,
       "sha256": "fba04c4351d46ab1c36cffee7f7762a76ec26c717efd39732d87a6a97385bb3d",
@@ -36,6 +72,42 @@
       "short": "Method: more Wacom runs. Same ~200 measurements/s as stock, Wacom's calculation runs 4 times per measurement: 4 small cursor steps instead of 1 big one (~730 reports/s). Smooth, calm hover, the most tested.",
       "method": "more Wacom runs",
       "howto": [
+        "m2"
+      ]
+    },
+    {
+      "file": "pth660_v385_750hz.pkg",
+      "size": 676064,
+      "sha256": "adb2e4c33de459f2e279102f08bd20f2ba1b72774ceaac630a0e73625b9f4c76",
+      "id": "v3.85",
+      "title": "v3.85 (~750 Hz, two measurements)",
+      "recommended": false,
+      "kind": "custom",
+      "summary": "v2.45 with the second real measurement per scan loop: while the pen sends its pressure and button data, the neighbouring wires listen too, so the pen is located twice per loop (~400 times/s instead of ~200). The second position is used only when its signal is strong and matches the first (never at the top / left edge). Everything else is v2.45: Wacom's calculation runs 4 times per loop, Wacom's own reports (~750/s, one per USB poll), Wacom's own smoothing for drawing and hover, stock pressure, buttons and hover. No extra output code or diagnostics.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0385",
+          "base": "0x08040000",
+          "size": 337408,
+          "sha256": "a1015c6e1841663222a0af68de04488d5cc75c421cca953350e18da7f002bda0"
+        },
+        {
+          "slot": "b",
+          "version": "0x0385",
+          "base": "0x080A0000",
+          "size": 337920,
+          "sha256": "f5ec99f6ab710768e8ab1f3a747b567ea7fa4de001cdc7907dabd6d5e1c4b140"
+        }
+      ],
+      "lag": "~7 ms",
+      "method": "two measurements",
+      "short": "Method: two measurements + more Wacom runs. The pen is measured twice per scan (~400 times/s), and Wacom's own calculation turns that into ~750 smooth reports/s, like v2.45. Straighter lines and a calmer cursor than v2.45 in tests.",
+      "howto": [
+        "m4",
+        "m4a",
+        "m4b",
+        "m4c",
         "m2"
       ]
     },
@@ -73,42 +145,6 @@
         "m4b",
         "m4c",
         "m6"
-      ]
-    },
-    {
-      "file": "pth660_v362_400hz.pkg",
-      "size": 675074,
-      "sha256": "7432f83f8d17c2611b453c181217707d089aa8d9417f6d24613bc35f6290f716",
-      "id": "v3.62",
-      "title": "v3.62 (~400 Hz, 2 real measurements per loop)",
-      "recommended": false,
-      "kind": "custom",
-      "summary": "Two real position measurements per scan loop instead of one, ~400 reports/s, evenly spaced. Besides the normal position scan (S1), the pen-data scan (S2) listens on the neighbour coils of one axis while the other axis keeps reading the pen's bits, so pressure, buttons and hover stay Wacom's own. Each neighbour reading is divided by the other axis's peak reading of the same burst, and the result goes into Wacom's own position calculation as a second measurement (skipped when unsafe, e.g. while the pen crosses to the next coil). Wacom's calc gets only the S1 and S2 frames, averaged over a constant 4 results, and exactly one report is sent per frame: no re-timing, interpolation or prediction. Short hover signal dips (Wacom clears 'in range' while still tracking) are passed on as in range for up to 150 ms.",
-      "images": [
-        {
-          "slot": "a",
-          "version": "0x0362",
-          "base": "0x08040000",
-          "size": 336896,
-          "sha256": "8826e3e6bfbd7a9d9d1739048447b89560ac85d89698770d3b7967da42eb6081"
-        },
-        {
-          "slot": "b",
-          "version": "0x0362",
-          "base": "0x080A0000",
-          "size": 337408,
-          "sha256": "a4beb391869c4a326c4770b557c18e37f8bdf86158f12294ea11992d2da2eb5d"
-        }
-      ],
-      "lag": "~7-8 ms",
-      "short": "Method: two measurements. The pen-data part of each scan also locates the pen, so it is measured twice per scan (~400 times/s). Exactly one report per measurement (~400/s, evenly spaced), nothing added in between.",
-      "method": "two measurements",
-      "howto": [
-        "m4",
-        "m4a",
-        "m4b",
-        "m4c",
-        "m5"
       ]
     },
     {

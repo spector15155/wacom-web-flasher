@@ -48,6 +48,16 @@ ship and how they work are in [FIRMWARE_HISTORY.md](FIRMWARE_HISTORY.md); the fu
   smoothing positions in Wacom's own record buffer disturbed its pen routine (~350 reports/s). The shipped v3.78 uses
   a packet queue and smooths a copy instead.
 
+## Hover power boost (v3.80-v3.84)
+
+The sensor program of every scan step holds the transmit burst length (u16 +0x06), the step period (u16 +0x46) and
+an automatic gain (+0x0E) that rises as the pen moves away (~141-159 with the tip down, 170-218 in hover). The builds
+lengthened only the power steps' transmit bursts (program 0x8B / 0x8C, transmit-only) by up to 25 % in proportion to
+that gain, to charge a hovering pen more (the drive voltage itself is fixed by the hardware). Hover measured steadier
+in tests, but with the boost active right after the pen came into range (v3.81), a fast entry made the cursor
+jitter; holding the boost off for the first ~0.5 s after each entry (v3.84) was the fix under test when the idea was
+dropped. Not shipped; sources kept in `analysis/build_v381_hoverboost/` of the main repository.
+
 ## Latency
 
 - A short look-ahead (continue the path up to 4-6 ms past the newest position, v3.21-v3.27): lag under v2.45
