@@ -14,6 +14,7 @@ separated from the research repo around it.
 pth660-webflash/
 ├── PLAN.md, Dockerfile, docker-compose.yml, docker/   web app plan and container setup
 ├── web/                      the web app (WebHID), phase 1: connect / status / verify
+│   ├── coils.html/js/css     Coil Viewer: live coil signals + pen position, record / save / replay (read-only)
 │   └── howto/*.svg           "How the pen works" slides: 1-8 the stock cycle, m1-m6 what each method changes (build/make_howto.py)
 ├── tests/                    node tests vs the Python reference
 ├── firmware/                 packages to offer in the UI
@@ -28,11 +29,13 @@ pth660-webflash/
 │   └── pth660_stock_v151_v152.pkg           Wacom stock firmware, restore (~200 reports/s, lag ~13 ms est.)
 ├── docs/
 │   ├── PROTOCOL.md           the flash protocol, step by step, with WebHID notes and safety rules
-│   ├── FIRMWARE_HISTORY.md   how each build works, what was measured and what didn't work
+│   ├── FIRMWARE_HISTORY.md   how each build in the flasher works, measurements, lag, how to rebuild
+│   ├── EXPERIMENTS.md        methods that were tried and not used (kept apart so they don't confuse)
 │   └── GIF_PROMPT.md         simple frame-by-frame image prompts: how the tablet finds the pen (stock scan loop)
 ├── reference/
 │   └── pth660_flash.py       working Python implementation to port (hidapi); status / info / flash / reboot
 └── build/                    rebuild v2.45 / v2.99 / v3.28 / v3.29 from v1.65, v3.62 from v1.61 (make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
+    unpack_pkg.py             split a .pkg into its slot A / B .bin images (checks each sha256)
     ├── make_frame23.py       v1.65 image -> v2.45 image (per slot)
     ├── make_pkg.py           two slot images -> .pkg
     └── base/                 v1.65 slot A / slot B images

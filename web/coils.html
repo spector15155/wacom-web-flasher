@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PTH-660 Coil Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="coils.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 12h3l2-6 4 12 2-6h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <h1>Coil Viewer</h1>
+        <p class="sub">Live coil signals and pen position · <a href="./">back to the flasher</a></p>
+      </div>
+    </div>
+    <div class="conn">
+      <span id="conn-pill" class="pill off"><span class="dot"></span><span id="conn-text">Not connected</span></span>
+      <button id="connect" class="btn primary">Connect tablet</button>
+      <button id="disconnect" class="btn ghost" hidden>Disconnect</button>
+    </div>
+  </header>
+
+  <main class="cv">
+    <section id="support" class="banner warn" hidden>
+      This browser can't talk to USB devices. Use desktop <b>Chrome</b> or <b>Edge</b>, on
+      <code>http://127.0.0.1</code>, <code>localhost</code> or HTTPS.
+    </section>
+
+    <section class="card cv-bar">
+      <div class="cv-group">
+        <button id="rec" class="btn small" disabled title="Record everything that arrives from now on">● Record</button>
+        <button id="save" class="btn ghost small" disabled>Save recording</button>
+        <label class="btn ghost small file">Load recording<input id="load" type="file" accept=".json,application/json" hidden></label>
+      </div>
+      <div class="cv-group" id="player" hidden>
+        <button id="play" class="btn small">▶ Play</button>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span id="ptime" class="mono">0.00 s</span>
+        <select id="speed" title="Playback speed">
+          <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option><option value="2">2×</option>
+        </select>
+        <button id="live" class="btn ghost small" title="Back to the live view">Live</button>
+      </div>
+      <label class="sub">coil reads
+        <select id="rate" title="How often the coil signals are read. Fewer reads = fewer of the tablet's rare 5 s stalls.">
+          <option value="25">25 /s</option><option value="50" selected>50 /s</option><option value="100">100 /s</option>
+          <option value="1000">max</option>
+        </select></label>
+      <div class="cv-stats mono" id="stats">-</div>
+    </section>
+
+    <div class="cv-grid">
+      <section class="card">
+        <div class="card-head"><h2>Tablet</h2><span class="sub" id="mode">live</span></div>
+        <canvas id="map" class="cv-canvas" data-ar="0.66"></canvas>
+        <p class="sub legend">
+          <span class="sw pen"></span> pen (report) &nbsp; <span class="sw est"></span> from the coils &nbsp;
+          <span class="sw win"></span> coils being read (brighter = stronger signal)</p>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Coil signals</h2><span class="sub" id="coilinfo">-</span></div>
+        <canvas id="bars" class="cv-canvas" data-ar="0.66"></canvas>
+        <p class="sub legend">10 coils around the pen per axis, as in the frame Wacom last calculated from. The dashed
+          curve through the strongest coil and its neighbours peaks at the pen position.</p>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><h2>Over time</h2><span class="sub">last 3 s · X, Y and pressure</span></div>
+      <canvas id="time" class="cv-canvas" data-ar="0.28"></canvas>
+    </section>
+
+    <details class="card about-card">
+      <summary>How it works</summary>
+      <p>Pen position, pressure and buttons come from the tablet's normal pen reports. The coil signals are read from
+        the tablet's memory through the same read-only window the flasher uses to check firmware (feature reports
+        0xD4 / 0xD1): the frame Wacom's position calculation last received, holding the signal strength of the 10 X
+        and 10 Y coils around the pen. Nothing is written to the tablet.</p>
+      <p>Coil numbers are converted to tablet coordinates with a fit against the pen reports, refined live (shown under
+        the tablet as counts per coil). Recordings are JSON files with every pen report and coil sample and their
+        times; they can be replayed here at any speed.</p>
+      <p>Don't use this page and the flasher on the tablet at the same time.</p>
+    </details>
+  </main>
+  <script type="module" src="coils.js"></script>
+</body>
+</html>

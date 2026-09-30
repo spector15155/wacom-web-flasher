@@ -15,7 +15,7 @@
       "title": "v2.45 (recommended)",
       "recommended": true,
       "kind": "custom",
-      "summary": "Recommended. Stock pen scanning (the pen is measured ~206 times/s) with one change: Wacom's calc also runs on the set-1 pass-a frame when the coil window is unchanged, so every measurement loop gives 4 reports instead of 3 (~730 reports/s). This removes v1.65's 'every 4th report missing' gaps in fast drags. The extra reports are Wacom's smoothed in-between positions. Stock pressure, side buttons, hover and filters.",
+      "summary": "Recommended. Stock pen scanning (the pen is measured ~206 times/s) with one change: Wacom's calc also runs on the set-1 pass-a frame when the coil window is unchanged, so every measurement loop gives 4 reports instead of 3 (~730 reports/s). The extra reports are Wacom's smoothed in-between positions. Stock pressure, side buttons, hover and filters.",
       "images": [
         {
           "slot": "a",
@@ -47,7 +47,7 @@
       "title": "v3.78 (~1500 Hz, 2 real measurements per loop)",
       "recommended": false,
       "kind": "experimental",
-      "summary": "Two real measurements per scan loop as v3.62 (S1 position scan + S2 pen-data scan listening on the neighbour coils, normalised per burst; S2 only with a strong signal and a matching coil, stock S2 at the top / left edge). Wacom's calc gets up to 7 frames per loop (steps 23-29; step 23 only when the coil window is unchanged, 25-27 are transmit-only steps with complete data) and averages a constant 7 results (~1 loop), so ~1500 results/s, each a real Wacom output, sent two per USB packet. Top / left strip (Wacom extrapolates there): extra smoothing when the pen is slow or still, none when fast. Includes fixes for USB packets lost to the host's polling (waits for the endpoint, small packet queue) and for Wacom marking extra-frame results invalid after the pen re-enters (rate fell to ~350/s).",
+      "summary": "Two real measurements per scan loop as v3.62 (S1 position scan + S2 pen-data scan listening on the neighbour coils, normalised per burst; S2 only with a strong signal and a matching coil, stock S2 at the top / left edge). Wacom's calc gets up to 7 frames per loop (steps 23-29; step 23 only when the coil window is unchanged, 25-27 are transmit-only steps with complete data) and averages a constant 7 results (~1 loop), so ~1500 results/s, each a real Wacom output, sent two per USB packet. Top / left strip (Wacom extrapolates there): extra smoothing when the pen is slow or still, none when fast. USB packets wait in a small queue until the PC collects the previous one, so none are dropped, and extra-frame results stay valid after the pen re-enters range.",
       "images": [
         {
           "slot": "a",
@@ -69,6 +69,9 @@
       "method": "two measurements",
       "howto": [
         "m4",
+        "m4a",
+        "m4b",
+        "m4c",
         "m6"
       ]
     },
@@ -102,6 +105,9 @@
       "method": "two measurements",
       "howto": [
         "m4",
+        "m4a",
+        "m4b",
+        "m4c",
         "m5"
       ]
     },
@@ -163,7 +169,7 @@
         }
       ],
       "lag": "~8.5 ms",
-      "short": "Method: even output. v2.45's measurements, reports placed exactly every 1 ms (1000/s) on the path between measured positions, no prediction. Improved timing over v2.99.",
+      "short": "Method: even output. v2.45's measurements, reports placed exactly every 1 ms (1000/s) on the path between measured positions, no prediction.",
       "method": "even output",
       "howto": [
         "m3"
@@ -195,11 +201,12 @@
         }
       ],
       "lag": "~9 ms",
-      "short": "Method: even output. v2.45's measurements, then our own output places one report exactly every 1 ms (1000/s) on the path between measured positions, no prediction. Earlier version of v3.29.",
+      "short": "Older build, replaced by v3.29. Method: even output. v2.45's measurements, one report exactly every 1 ms (1000/s) on the path between measured positions, no prediction.",
       "method": "even output",
       "howto": [
         "m3"
-      ]
+      ],
+      "older": true
     },
     {
       "file": "pth660_v165_600hz.pkg",
@@ -227,11 +234,12 @@
         }
       ],
       "lag": "~8 ms",
-      "short": "Method: more Wacom runs. Same ~200 measurements/s as stock, but Wacom's own position calculation runs 3 times per measurement, so its smoothing steps towards each new position in 3 smaller moves (~600 reports/s). Superseded by v2.45.",
+      "short": "Older build, replaced by v2.45. Method: more Wacom runs. Same ~200 measurements/s as stock, Wacom's calculation runs 3 times per measurement (~600 reports/s).",
       "method": "more Wacom runs",
       "howto": [
         "m2"
-      ]
+      ],
+      "older": true
     },
     {
       "file": "pth660_stock_v151_v152.pkg",

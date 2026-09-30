@@ -484,7 +484,7 @@ def m1():
 
 def m2():
     ser, meas = simulate(V245, 4)
-    return frame(graph(ser, meas, "~200 measurements/s · ~730 reports/s", "More Wacom runs: v1.65, v2.45"),
+    return frame(graph(ser, meas, "~200 measurements/s · ~730 reports/s", "More Wacom runs: v2.45"),
                  "More Wacom runs: the same measurements, but Wacom's calculation runs 3-4 times per cycle, "
                  "so the cursor moves in smaller steps and stays closer to the pen.")
 
@@ -492,7 +492,7 @@ def m2():
 def m3():
     base, meas = simulate(V245, 4)
     ser = even(base, 1.0, 3.25)
-    return frame(graph(ser, meas, "~200 measurements/s · 1000 or 2000 reports/s", "Even output: v2.99, v3.29, v3.28"),
+    return frame(graph(ser, meas, "~200 measurements/s · 1000 or 2000 reports/s", "Even output: v3.29, v3.28"),
                  "Even output: a report exactly every 1 ms (0.5 ms on v3.28), placed on the path between "
                  "measurements. Never ahead of the pen: nothing is guessed.")
 
@@ -531,8 +531,127 @@ def m6():
                  "~1500 reports per second in fine steps.")
 
 
+# --- the second measurement in detail (layout of the shipped builds, make_s2c.py --s2norm --layout1)
+S2_LAYOUT = {  # [pass][axis] = coil listened per burst: P = the pen's own wire, L / R = its left / right neighbour
+    "a": {"X": "PLRPPP", "Y": "PPPLRP"},
+    "b": {"X": "PPPRLP", "Y": "PRLPPP"},
+}
+S2_BITS = "110111" "101111"          # example pen bits (strong = 1): pass a pressure bits, pass b status bits
+
+
+def cell(x, y, kind, usable=True):
+    if kind == "P":
+        col, txt = GREEN, "P"
+    else:
+        col, txt = BLUE, kind
+    op = 1 if usable else 0.25
+    out = (f'<rect x="{x}" y="{y}" width="40" height="36" rx="7" fill="{col}" opacity="{0.22 * op + 0.08:.2f}" '
+           f'stroke="{col}" stroke-width="2" stroke-opacity="{op}"/>'
+           f'<text x="{x + 20}" y="{y + 24}" font-size="15" font-weight="600" text-anchor="middle" fill="{col}" '
+           f'opacity="{op}">{txt}</text>')
+    if not usable:
+        out += (f'<line x1="{x + 8}" y1="{y + 8}" x2="{x + 32}" y2="{y + 28}" stroke="{MUTED}" stroke-width="2"/>'
+                f'<line x1="{x + 32}" y1="{y + 8}" x2="{x + 8}" y2="{y + 28}" stroke="{MUTED}" stroke-width="2"/>')
+    return out
+
+
+def m4a():
+    b = []
+    x0, step = 150, 49
+    rows = {"bit": 100, "X": 186, "Y": 236}
+    b.append(label(x0 - 16, rows["bit"] + 30, "pen's bit", MUTED, "end", 12))
+    b.append(label(x0 - 16, rows["X"] + 23, "X wires", FG, "end", 13))
+    b.append(label(x0 - 16, rows["Y"] + 23, "Y wires", FG, "end", 13))
+    for pi, ps in enumerate("ab"):
+        gx0 = x0 + pi * (6 * step + 26)
+        b.append(f'<rect x="{gx0 - 8}" y="78" width="{6 * step + 6}" height="210" rx="10" fill="#181c23" stroke="{LINE}"/>')
+        b.append(label(gx0 + 3 * step - 4, 72, f"pen-data pass {ps}", MUTED, "middle", 12))
+        for i in range(6):
+            k = pi * 6 + i
+            x = gx0 + i * step
+            bit = S2_BITS[k] == "1"
+            h = 38 if bit else 10
+            b.append(f'<rect x="{x + 12}" y="{rows["bit"] + 44 - h}" width="16" height="{h}" rx="3" fill="{GREEN}" '
+                     f'opacity="{1 if bit else .45}"/>')
+            b.append(label(x + 20, rows["bit"] + 60, "1" if bit else "0", FG if bit else MUTED, "middle", 12))
+            for ax in "XY":
+                kind = S2_LAYOUT[ps][ax][i]
+                b.append(cell(x, rows[ax], kind, usable=(kind == "P" or bit)))
+            both_p = S2_LAYOUT[ps]["X"][i] == "P" and S2_LAYOUT[ps]["Y"][i] == "P"
+            if both_p:
+                b.append(f'<circle cx="{x + 20}" cy="{rows["Y"] + 50}" r="3" fill="{AMBER}"/>')
+    b.append(f'<circle cx="160" cy="316" r="3" fill="{AMBER}"/>' + label(170, 320, "both wires on P: compares X and Y strength", MUTED, size=11))
+    b.append(label(478, 320, "L / R reading on a '0' bit: too weak, not used", MUTED, size=11))
+    b.append(f'<line x1="462" y1="312" x2="472" y2="324" stroke="{MUTED}" stroke-width="2"/><line x1="472" y1="312" x2="462" y2="324" stroke="{MUTED}" stroke-width="2"/>')
+    b.append(label(160, 346, "P = the pen's own wire (keeps reading the bit)", GREEN, size=11))
+    b.append(label(478, 346, "L / R = its left / right neighbour", BLUE, size=11))
+    return frame("".join(b), "The pen-data step, burst by burst: one axis always stays on the pen's wire to read the bit, "
+                 "the other listens on a neighbour.", "data", "STEP 3 · READ DATA + LOCATE")
+
+
+def m4b():
+    b = []
+
+    def burst(x, strength, title):
+        o = []
+        o.append(label(x + 110, 88, title, FG, "middle", 14))
+        base = 270
+        yv, xv = 160 * strength, 160 * strength * 0.42
+        o.append(f'<rect x="{x + 30}" y="{base - yv:.0f}" width="60" height="{yv:.0f}" rx="5" fill="{GREEN}" opacity=".85"/>')
+        o.append(f'<rect x="{x + 130}" y="{base - xv:.0f}" width="60" height="{xv:.0f}" rx="5" fill="{BLUE}" opacity=".85"/>')
+        o.append(f'<line x1="{x + 10}" y1="{base}" x2="{x + 210}" y2="{base}" stroke="{LINE}"/>')
+        o.append(label(x + 60, base + 16, "Y: pen's wire", MUTED, "middle", 11))
+        o.append(label(x + 160, base + 16, "X: neighbour", MUTED, "middle", 11))
+        o.append(label(x + 60, base - yv - 8, f"{strength:.2f}", GREEN, "middle", 13))
+        o.append(label(x + 160, base - xv - 8, f"{strength * 0.42:.2f}", BLUE, "middle", 13))
+        o.append(label(x + 110, base + 46, f"{strength * 0.42:.2f} ÷ {strength:.2f} = 0.42", FG, "middle", 15))
+        return "".join(o)
+
+    b.append(burst(90, 1.00, "strong burst"))
+    b.append(burst(420, 0.70, "weaker burst (pen losing charge)"))
+    b.append(label(400, 324, "=", MUTED, "middle", 28))
+    b.append(label(400, 356, "the same ratio: it only depends on where the pen is", FG, "middle", 13))
+    return frame("".join(b), "Why divide: the pen's signal changes from burst to burst. Dividing a neighbour reading by the "
+                 "other axis's reading of the same burst cancels that out.", "data", "STEP 3 · READ DATA + LOCATE")
+
+
+def m4c():
+    b = []
+    base, x0 = 290, 90
+    ent = [(2, 0.18, "s1"), (3, 0.46, "s2"), (4, 1.0, "s1"), (5, 0.72, "s2"), (6, 0.24, "s1")]
+    b.append(label(x0 + 130, 84, "the frame Wacom calculates from (one axis)", MUTED, "middle", 12))
+    for i, (e, v, src) in enumerate(ent):
+        x = x0 + i * 56
+        h = v * 170
+        col = GREEN if src == "s2" else "#7d8594"
+        b.append(f'<rect x="{x}" y="{base - h:.0f}" width="40" height="{h:.0f}" rx="4" fill="{col}" '
+                 f'opacity="{.9 if src == "s2" else .55}"/>')
+        b.append(label(x + 20, base + 18, ("left" if e == 3 else "pen's wire" if e == 4 else "right" if e == 5 else ""),
+                       MUTED, "middle", 10))
+    b.append(f'<line x1="{x0 - 10}" y1="{base}" x2="{x0 + 5 * 56 - 6}" y2="{base}" stroke="{LINE}"/>')
+    b.append(label(x0 - 6, base + 40, "green: from the pen-data step (ratio × the S1 reading)", GREEN, "start", 11))
+    b.append(label(x0 - 6, base + 56, "grey: from the normal locate step (S1)", MUTED, "start", 11))
+    # arrow to Wacom's calculation
+    b.append(f'<path d="M390,240 L450,240" stroke="{FG}" stroke-width="2"/><path d="M444,234 L452,240 L444,246" stroke="{FG}" stroke-width="2" fill="none"/>')
+    b.append(f'<rect x="458" y="208" width="130" height="64" rx="10" fill="#1b2029" stroke="{LINE}"/>')
+    b.append(label(523, 236, "Wacom's position", FG, "middle", 12) + label(523, 252, "calculation", FG, "middle", 12))
+    b.append(f'<path d="M588,240 L630,240" stroke="{FG}" stroke-width="2"/><path d="M624,234 L632,240 L624,246" stroke="{FG}" stroke-width="2" fill="none"/>')
+    b.append(f'<circle cx="668" cy="240" r="14" fill="none" stroke="{GREEN}" stroke-width="3"/>')
+    b.append(label(668, 276, "2nd position", GREEN, "middle", 12) + label(668, 292, "of this cycle", MUTED, "middle", 11))
+    # checks
+    b.append(label(458, 96, "used only if:", FG, "start", 12))
+    for i, t in enumerate(("the signal is strong (not in high hover)", "same wire as S1 (strength within ±10 %)",
+                           "both X and Y are good", "not at the top / left edge")):
+        b.append(f'<circle cx="466" cy="{114 + 17 * i - 4}" r="3" fill="{GREEN}"/>' + label(476, 114 + 17 * i, t, MUTED, "start", 11))
+    b.append(label(458, 318, "otherwise the frame keeps the S1 values", MUTED, "start", 11))
+    b.append(label(458, 334, "(no second position this cycle)", MUTED, "start", 11))
+    return frame("".join(b), "The ratios replace the neighbour values in Wacom's frame, and Wacom's own calculation turns "
+                 "them into the cycle's second position.", "data", "STEP 3 · READ DATA + LOCATE")
+
+
 FRAMES = (f1, f2, f3, f4, f5, f6, f7, f8)
 METHOD_FRAMES = (m1, m2, m3, m4, m5, m6)
+EXTRA_FRAMES = {"m4a": m4a, "m4b": m4b, "m4c": m4c}
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
@@ -542,5 +661,9 @@ if __name__ == "__main__":
         print("wrote", path)
     for k, fn in enumerate(METHOD_FRAMES, 1):
         path = os.path.join(OUT, f"m{k}.svg")
+        open(path, "w", encoding="utf-8").write(fn())
+        print("wrote", path)
+    for name, fn in EXTRA_FRAMES.items():
+        path = os.path.join(OUT, f"{name}.svg")
         open(path, "w", encoding="utf-8").write(fn())
         print("wrote", path)

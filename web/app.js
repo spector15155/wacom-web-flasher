@@ -234,7 +234,7 @@ function chooseStep() {
   const body = $("wz-body");
   if (wz.kind === "install") {
     const running = info.running;
-    body.innerHTML = `<div class="choice">${firmwareList.map((fw, i) => {
+    const option = (fw, i) => {
       const tag = fw.recommended ? '<span class="tag rec">recommended</span>'
         : fw.kind === "experimental" ? '<span class="tag exp">experimental</span>'
         : fw.kind === "stock" ? '<span class="tag">factory</span>' : "";
@@ -250,7 +250,13 @@ function chooseStep() {
           ${(fw.howto || []).map((h) => `<img class="how-img" src="howto/${esc(h)}.svg" alt="${esc(HOWTO_ALT[h] || "")}"
             data-howto="${esc(h)}" title="Open in the pictures above" loading="lazy">`).join("")}
           <p>${esc(fw.summary)}</p></details>` : ""}</label>`;
-    }).join("")}</div>
+    };
+    const current = firmwareList.map((fw, i) => [fw, i]).filter(([fw]) => !fw.older);
+    const older = firmwareList.map((fw, i) => [fw, i]).filter(([fw]) => fw.older);
+    const olderOpen = older.some(([fw]) => wz.fw === fw) ? "open" : "";
+    body.innerHTML = `<div class="choice">${current.map(([fw, i]) => option(fw, i)).join("")}</div>
+    ${older.length ? `<details class="older" ${olderOpen}><summary>Older builds (replaced by newer ones, kept for reference)</summary>
+      <div class="choice">${older.map(([fw, i]) => option(fw, i)).join("")}</div></details>` : ""}
     <p class="note info">Lag = estimated average delay from pen movement to the tablet's USB report (the PC adds its own).
       v3.62 and v3.78 measure the pen ~2 x 201 times per second, all other builds ~201; higher report rates are
       positions between measured ones (no prediction).<br>
@@ -675,9 +681,12 @@ const CHAPTERS = {
   ],
   methods: [
     ["m1", "Stock: one measurement, one report per cycle. The cursor jumps and trails the pen."],
-    ["m2", "More Wacom runs (v1.65, v2.45): the same measurements, the cursor moves in smaller steps, closer to the pen."],
-    ["m3", "Even output (v2.99, v3.29, v3.28): a report every 1 ms (0.5 ms), placed between measurements, never ahead."],
+    ["m2", "More Wacom runs (v2.45): the same measurements, the cursor moves in smaller steps, closer to the pen."],
+    ["m3", "Even output (v3.29, v3.28): a report every 1 ms (0.5 ms), placed between measurements, never ahead."],
     ["m4", "Two measurements (v3.62, v3.78): while the pen sends its data, the neighbouring wires listen too."],
+    ["m4a", "The pen-data step burst by burst: one axis stays on the pen's wire to read the bit, the other listens on a neighbour."],
+    ["m4b", "Why divide: a neighbour reading divided by the other axis's reading of the same burst cancels the pen's changing strength."],
+    ["m4c", "The ratios replace the neighbour values in Wacom's frame; Wacom's own calculation turns them into the second position."],
     ["m5", "v3.62: twice the real measurements, one report for each (~400 per second)."],
     ["m6", "v3.78: twice the measurements and ~7 Wacom runs per cycle: ~1500 reports per second in fine steps."],
   ],
