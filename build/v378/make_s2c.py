@@ -229,6 +229,28 @@ def main():
     ap.add_argument("--minimal", action="store_true",
                     help="--output: minimal native output (s2x/nat.c): Wacom's own report for every S1 / S2 result, "
                          "step-28 result dropped; nothing else")
+    ap.add_argument("--repeat", action="store_true",
+                    help="--minimal: re-send the last real report on every HID tick (with --double: 2000/s)")
+    ap.add_argument("--multi", action="store_true",
+                    help="--minimal: up to two calc results per 1 ms tick, packed in one USB packet (needs --double)")
+    ap.add_argument("--nodrop", action="store_true", help="--minimal: send every calc result (no step-28 drop)")
+    ap.add_argument("--s2gate", type=int, default=0,
+                    help="--s2norm: inject S2 only if its peak amplitude >= N (2000) and within +-10%% of S1's")
+    ap.add_argument("--edge2", action="store_true",
+                    help="--s2norm --s2gate: S2 second measurement in the clamped top / left window too")
+    ap.add_argument("--keepvalid", action="store_true",
+                    help="--minimal: keep Wacom's X/Y valid bits on extra-frame results when the loop's S1 was valid")
+    ap.add_argument("--natdiag", action="store_true", help="--minimal: count pen-routine outcomes per calc state")
+    ap.add_argument("--mailwait", action="store_true",
+                    help="--minimal: calc waits (osDelay 1, up to 4x) while the calc -> HID mail queue is full")
+    ap.add_argument("--edgesm", action="store_true",
+                    help="--minimal: speed-adaptive smoothing in the top / left strip (Wacom extrapolates there)")
+    ap.add_argument("--pair", action="store_true",
+                    help="--multi: every USB packet carries two reports (a lone record waits one tick)")
+    ap.add_argument("--restore", action="store_true",
+                    help="--minimal: S1 entries back in the work area after the step-29 push (later frames S1 only)")
+    ap.add_argument("--calcdrain", action="store_true",
+                    help="--minimal on a --calc1 base: calc task takes waiting frames at once (no ring overflow)")
     ap.add_argument("--layout1", action="store_true", help="--s2norm: v3.45 pass-b layout (edge bursts on the peak)")
     ap.add_argument("--natlog", action="store_true", help="--minimal: diagnostic log of the first 2048 results")
     ap.add_argument("--lean", action="store_true", help="compile out the diagnostics (grading, histograms, analysis log)")
@@ -300,6 +322,31 @@ def main():
         defines["NATLOG"] = "1"
     if a.layout1:
         defines["LAYOUT1"] = "1"
+    if a.repeat:
+        defines["REPEAT"] = "1"
+    if a.multi:
+        defines["MULTI"] = "1"
+    if a.nodrop:
+        defines["NODROP"] = "1"
+    if a.calcdrain:
+        defines["CALCDRAIN"] = "1"
+    if a.restore:
+        defines["RESTORE"] = "1"
+    if a.pair:
+        defines["PAIR"] = "1"
+    if a.edgesm:
+        defines["EDGESM"] = "1"
+    if a.mailwait:
+        defines["MAILWAIT"] = "1"
+    if a.natdiag:
+        defines["NATDIAG"] = "1"
+    if a.keepvalid:
+        defines["KEEPVALID"] = "1"
+    if a.edge2:
+        defines["EDGE2"] = "1"
+    if a.s2gate:
+        defines["S2GATE"] = "1"
+        defines["S2MIN"] = str(a.s2gate)
     sources = ["s2x.c"]
     O = None
     if a.output:
@@ -325,6 +372,21 @@ def main():
             defines["SRC_OUTPUT"] = "1"
         sources.append("nat.c" if a.minimal else "out.c")
         print("output: " + ", ".join(f"{k} 0x{v:08X}" for k, v in O.items()) + f", delay {a.delay_us} us")
+    if O:
+        for ins in md.disasm(bytes(blob[O["usb_send"] - base:O["usb_send"] - base + 16]), O["usb_send"]):
+            if ins.mnemonic.startswith("ldr") and "pc" in ins.op_str:
+                lit = ((ins.address + 4) & ~3) + int(ins.op_str.split("#")[1].rstrip("]"), 16)
+                defines["USBDEV"] = hex(struct.unpack_from("<I", blob, lit - base)[0])
+                break
+        assert 0x20000000 < int(defines.get("USBDEV", "0"), 16) < 0x20040000, "USB device handle not found"
+    if O:
+        # calc -> HID mail queue variable: first pc-relative literal of Wacom's pen routine
+        for ins in md.disasm(bytes(blob[O["pen"] - base:O["pen"] - base + 12]), O["pen"]):
+            if ins.mnemonic.startswith("ldr") and "pc" in ins.op_str:
+                lit = ((ins.address + 4) & ~3) + int(ins.op_str.split("#")[1].rstrip("]"), 16)
+                defines["MAILQ"] = hex(struct.unpack_from("<I", blob, lit - base)[0])
+                break
+        assert 0x20000000 < int(defines.get("MAILQ", "0"), 16) < 0x20040000, "calc mail queue not found"
     caddr = base + len(blob)
     code, syms = compile_c(caddr, defines, sources)
     blob.extend(code + b"\xFF" * ((-len(code)) % 0x10))
@@ -382,6 +444,15 @@ def main():
                   f" get 0x{O['usb_get']:08X}, free 0x{O['usb_free']:08X}, queue 0x{O['usbq']:08X}, buf 0x{O['usb_buf']:08X})")
         print(f"out_push: ring push 0x{O['push']:08X} -> stub 0x{ps:08X}; out_hid: bl at 0x{O['hid_site']:08X} "
               f"-> 0x{syms['out_hid']:08X}")
+    if a.calcdrain:
+        # calc task loop: "ldrb r0,[r0,#2]; adds r0,#1; ldr r1,[pc,#x]; strb r0,[r1,#2]; movs r0,#1; bl osDelay"
+        hits = [m.start() for m in re.finditer(rb"\x80\x78\x40\x1c.\x49\x88\x70\x01\x20", bytes(blob), re.S)]
+        assert len(hits) == 1, f"calc loop delay: {len(hits)} hits (needs a --calc1 base)"
+        at = base + hits[0] + 10
+        ins = next(md.disasm(bytes(blob[at - base:at - base + 4]), at))
+        assert ins.mnemonic == "bl" and int(ins.op_str[1:], 16) == O["os_delay"], ins
+        patch(at, f"bl #{hex(syms['out_delay_calc'])}")
+        print(f"calcdrain: calc loop osDelay at 0x{at:08X} -> 0x{syms['out_delay_calc']:08X}")
     if a.mawin is not None:
         # Wacom's position filter table (both slots, used by every pen config): byte 0 low 3 bits = moving-average
         # window while drawing / moving fast; the hover window blends from it up to byte 1 (12)

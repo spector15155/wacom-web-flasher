@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" font-family="Inter, 'Segoe UI', system-ui, sans-serif">
+<defs>
+  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+  <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
+  <linearGradient id="slab" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#262b35"/><stop offset="1" stop-color="#1a1e25"/></linearGradient>
+  <linearGradient id="penbody" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5b6270"/><stop offset=".45" stop-color="#9aa1ad"/><stop offset="1" stop-color="#4a505c"/></linearGradient>
+</defs>
+<rect width="800" height="450" fill="#14171d"/>
+<path d="M335.4,74.1 A104,104 0 0 1 430.5,204.9" stroke="#4f8cff" stroke-width="26" fill="none"/><text x="449.7345151674922" y="91.00778266071397" font-size="16" fill="#4f8cff" text-anchor="start" letter-spacing=".5">Locate</text><text x="449.7345151674922" y="109.00778266071397" font-size="12" fill="#8b95a7" text-anchor="start" letter-spacing=".5">where is the pen</text><path d="M427.1,215.3 A104,104 0 0 1 242.8,234.6" stroke="#f2b640" stroke-width="26" fill="none"/><text x="345.47021256361273" y="333.18924051450443" font-size="16" fill="#f2b640" text-anchor="middle" letter-spacing=".5">Power</text><text x="345.47021256361273" y="351.18924051450443" font-size="12" fill="#8b95a7" text-anchor="middle" letter-spacing=".5">recharge the pen</text><path d="M237.3,225.2 A104,104 0 0 1 324.6,74.1" stroke="#3ecf8e" stroke-width="26" fill="none"/><text x="201.8282402399031" y="103.99999999999999" font-size="16" fill="#3ecf8e" text-anchor="end" letter-spacing=".5">Read data</text><text x="201.8282402399031" y="121.99999999999999" font-size="12" fill="#8b95a7" text-anchor="end" letter-spacing=".5">pressure and buttons</text><path d="M311,58 L331,74 L311,90" fill="none" stroke="#e8ebf1" stroke-width="3" stroke-linejoin="round"/><text x="330" y="182" font-size="34" fill="#e8ebf1" text-anchor="middle" letter-spacing=".5">~5 ms</text><text x="330" y="208" font-size="13" fill="#8b95a7" text-anchor="middle" letter-spacing=".5">one cycle</text><text x="650" y="170" font-size="40" fill="#e8ebf1" text-anchor="middle" letter-spacing=".5">~200</text><text x="650" y="196" font-size="13" fill="#8b95a7" text-anchor="middle" letter-spacing=".5">cycles per second</text>
+
+<rect y="380" width="800" height="70" fill="#0e1116"/>
+<text text-anchor="middle" font-size="17" fill="#e8ebf1"><tspan x="400" y="418">The three steps repeat in a loop of about 5 ms: roughly 200 times every second.</tspan></text>
+</svg>

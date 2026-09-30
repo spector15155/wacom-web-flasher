@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" font-family="Inter, 'Segoe UI', system-ui, sans-serif">
+<defs>
+  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+  <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
+  <linearGradient id="slab" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#262b35"/><stop offset="1" stop-color="#1a1e25"/></linearGradient>
+  <linearGradient id="penbody" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5b6270"/><stop offset=".45" stop-color="#9aa1ad"/><stop offset="1" stop-color="#4a505c"/></linearGradient>
+</defs>
+<rect width="800" height="450" fill="#14171d"/>
+<rect x="60" y="110" width="250" height="170" rx="14" fill="#1b1f27" stroke="#343a46"/><rect x="84" y="130" width="202" height="130" rx="6" fill="#20252e" stroke="#2c323d"/><path d="M120,230 C150,180 190,240 230,170" stroke="#e8ebf1" stroke-width="2" fill="none" opacity=".5"/><path d="M310,195 C380,195 400,300 470,300 S560,230 590,230" stroke="#5b6270" stroke-width="5" fill="none"/><rect x="388" y="236" width="170" height="30" rx="15" fill="#14171d" stroke="#e8ebf1" stroke-width="1.5"/><text x="473" y="256" font-size="12" fill="#e8ebf1" text-anchor="middle" letter-spacing=".5">x · y · pressure · buttons</text><rect x="590" y="120" width="170" height="112" rx="6" fill="#0f1216" stroke="#343a46" stroke-width="2"/><path d="M570,236 L780,236 L770,250 L580,250 Z" fill="#2b313c"/><polyline points="612,206 630,196 650,190 670,178 690,170 710,156 728,150" stroke="#e8ebf1" stroke-width="2" fill="none" opacity=".6"/><circle cx="612" cy="206" r="3" fill="#e8ebf1" opacity=".6"/><circle cx="630" cy="196" r="3" fill="#e8ebf1" opacity=".6"/><circle cx="650" cy="190" r="3" fill="#e8ebf1" opacity=".6"/><circle cx="670" cy="178" r="3" fill="#e8ebf1" opacity=".6"/><circle cx="690" cy="170" r="3" fill="#e8ebf1" opacity=".6"/><circle cx="710" cy="156" r="3" fill="#e8ebf1" opacity=".6"/><circle cx="728" cy="150" r="6" fill="#4f8cff"/><text x="675" y="272" font-size="12" fill="#8b95a7" text-anchor="middle" letter-spacing=".5">one new point per report</text><text x="185" y="312" font-size="12" fill="#8b95a7" text-anchor="middle" letter-spacing=".5">stock: one report per cycle</text>
+
+<rect y="380" width="800" height="70" fill="#0e1116"/>
+<text text-anchor="middle" font-size="17" fill="#e8ebf1"><tspan x="400" y="418">Each cycle ends with one report to the computer: position, pressure and buttons.</tspan></text>
+</svg>

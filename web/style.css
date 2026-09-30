@@ -85,6 +85,10 @@ h2 { margin: 0; font-size: 16px; }
 .opt input { margin-top: 4px; }
 .opt .t { font-weight: 650; }
 .opt .d { grid-column: 2; color: var(--muted); font-size: 13px; }
+.opt .d.short { color: var(--fg, inherit); opacity: .85; }
+.opt .how { margin-top: 2px; }
+.opt .how summary { cursor: pointer; color: var(--muted); font-size: 12px; width: max-content; }
+.opt .how[open] summary { margin-bottom: 4px; }
 .tag { display: inline-block; font-size: 11px; font-weight: 650; border-radius: 99px; padding: 1px 8px; margin-left: 6px; vertical-align: 1px; background: var(--soft); color: var(--muted); }
 .tag.rec { background: var(--ok-soft); color: var(--ok); }
 .tag.exp { background: var(--warn-soft); color: var(--warn); }
@@ -141,3 +145,21 @@ pre#log { margin: 12px 0 0; max-height: 280px; overflow: auto; font: 12px/1.5 ui
   .actions, .slots { grid-template-columns: 1fr; }
   .plan > div { grid-template-columns: 1fr; gap: 0; }
 }
+
+.tag.method { background: var(--soft); color: var(--fg); border: 1px solid var(--line); }
+
+.howto-card summary { cursor: pointer; font-weight: 600; }
+.slides { margin-top: 12px; outline: none; }
+.slides img { display: block; width: 100%; height: auto; border-radius: 10px; cursor: pointer; background: #14171d; }
+.slide-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; }
+.slide-dots { display: flex; gap: 6px; }
+.slide-dots button { width: 9px; height: 9px; padding: 0; border-radius: 50%; border: 0; background: var(--line); cursor: pointer; }
+.slide-dots button[aria-current="true"] { background: var(--fg); }
+
+.slide-tabs { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.slide-tab { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 99px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); cursor: pointer; }
+.slide-tab[aria-selected="true"] { background: var(--soft); color: var(--fg); }
+.opt .how .how-img { display: block; width: 100%; max-width: 560px; height: auto; margin: 6px 0; border-radius: 8px;
+  cursor: zoom-in; background: #14171d; }
+.opt .how p { margin: 6px 0 0; }

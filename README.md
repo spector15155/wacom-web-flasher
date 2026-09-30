@@ -14,10 +14,13 @@ separated from the research repo around it.
 pth660-webflash/
 ├── PLAN.md, Dockerfile, docker-compose.yml, docker/   web app plan and container setup
 ├── web/                      the web app (WebHID), phase 1: connect / status / verify
+│   └── howto/*.svg           "How the pen works" slides: 1-8 the stock cycle, m1-m6 what each method changes (build/make_howto.py)
 ├── tests/                    node tests vs the Python reference
 ├── firmware/                 packages to offer in the UI
-│   ├── manifest.json         list for the UI: title, summary, lag, recommended flag, sha256, per-slot images
+│   ├── manifest.json         list for the UI: title, method, short + detailed description, lag, recommended flag, sha256, per-slot images
 │   ├── pth660_v245_best.pkg                 v2.45, recommended (~730 reports/s, lag ~7 ms est.)
+│   ├── pth660_v378_1500hz.pkg               v3.78, ~1500 reports/s, 2 real measurements per loop, experimental (lag ~7-8 ms est.)
+│   ├── pth660_v362_400hz.pkg                v3.62, ~400 even reports/s, 2 real measurements per loop (lag ~7-8 ms est.)
 │   ├── pth660_v328_2000hz.pkg               v3.28, ~2000 even reports/s (2 per USB packet), real positions only (lag ~9 ms est.)
 │   ├── pth660_v329_1000hz.pkg               v3.29, 1000 even reports/s, real positions only (lag ~8.5 ms est.)
 │   ├── pth660_v299_1000hz.pkg               v2.99, 1000 even reports/s interpolated from real scans (lag ~9 ms est.)
@@ -25,10 +28,11 @@ pth660-webflash/
 │   └── pth660_stock_v151_v152.pkg           Wacom stock firmware, restore (~200 reports/s, lag ~13 ms est.)
 ├── docs/
 │   ├── PROTOCOL.md           the flash protocol, step by step, with WebHID notes and safety rules
-│   └── FIRMWARE_HISTORY.md   how v2.45 was reached and what didn't work
+│   ├── FIRMWARE_HISTORY.md   how each build works, what was measured and what didn't work
+│   └── GIF_PROMPT.md         simple frame-by-frame image prompts: how the tablet finds the pen (stock scan loop)
 ├── reference/
 │   └── pth660_flash.py       working Python implementation to port (hidapi); status / info / flash / reboot
-└── build/                    rebuild v2.45 / v2.99 / v3.28 / v3.29 from v1.65 (make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
+└── build/                    rebuild v2.45 / v2.99 / v3.28 / v3.29 from v1.65, v3.62 from v1.61 (make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
     ├── make_frame23.py       v1.65 image -> v2.45 image (per slot)
     ├── make_pkg.py           two slot images -> .pkg
     └── base/                 v1.65 slot A / slot B images
@@ -96,7 +100,11 @@ python build/make_frame23.py --slot b --in build/base/slot_b_v165_600hz.bin --ou
 python build/make_pkg.py --a slot_a_v245.bin --b slot_b_v245.bin --name "v2.45" --out pth660_v245.pkg
 ```
 
-v3.28: `python build/make_frame23.py --slot a --in build/base/slot_a_v165_600hz.bin --out slot_a_v245.bin --version 0x0245`, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v328.bin --version 0x0328 --output --pos output --nos2 --delay-us 3250 --double` (same for slot b; needs arm-none-eabi-gcc, path in `GCC_DIR`), then `make_pkg.py`. v3.29: same with `--version 0x0329` and `--pace` instead of `--double`. Both byte-identical to the shipped packages (v3.28 sha256 `30fbec23...` / `bc2ff81d...`, v3.29 `06454a98...` / `09e37e29...`).
+v3.78 (own sources in `build/v378/`, 7-frame bases there): see docs/FIRMWARE_HISTORY.md for the exact `make_s2c.py` command; byte-identical to the shipped package (sha256 `e8cbe9b2...` / `0e939d2a...`).
+
+v3.62 (on the v1.61 frame bases): `python build/make_s2c.py --slot a --in build/base/slot_a_v161_f29.bin --out slot_a_v362.bin --version 0x0362 --output --minimal --s2norm --layout1 --lean --mawin 4 --mahover 4` (same for slot b), then `make_pkg.py`. Byte-identical to the shipped package (sha256 `8826e3e6...` / `a4beb391...`).
+
+v3.28: `python build/make_frame23.py --slot a --in build/base/slot_a_v165_600hz.bin --out slot_a_v245.bin --version 0x0245`, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v328.bin --version 0x0328 --output --pos output --nos2 --delay-us 3250 --double` (same for slot b; needs arm-none-eabi-gcc, path in `GCC_DIR`), then `make_pkg.py`. v3.29: same with `--version 0x0329` and `--pace` instead of `--double`. They were built from an earlier revision of `build/s2x/out.c` (before the proximity bridge and native modes), so the current sources no longer rebuild them byte for byte; the shipped packages are unchanged (v3.28 sha256 `30fbec23...` / `bc2ff81d...`, v3.29 `06454a98...` / `09e37e29...`).
 
 v2.99: `python build/make_cycles.py --in build/base/slot_a_v165_600hz.bin --slot a --k 0 --upsample 6 --perscan --version 0x0299 --out slot_a_v299.bin` (same for slot b), then `make_pkg.py` as above. Byte-identical to the shipped v2.99 (sha256 `670d8539...` / `218d94dc...`).
 

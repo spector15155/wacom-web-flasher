@@ -4,7 +4,8 @@
 Flash: `tools\flash_universal.py firmware\images\pth660_v245_BEST_universal.pkg --arm --both`
 ~730 reports/s (stock: ~200), stock pressure, side buttons, hover and filters. The pen is still measured ~206
 times/s as in stock; the extra reports are Wacom's own smoothed in-between positions (see "Input lag" below).
-An even 1000 / 2000 reports/s with real positions only: v3.29 / v3.28 (see below).
+Two real position measurements per scan loop (~2 x 201/s): v3.62 (~400 even reports/s) and v3.78
+(~1500 reports/s, Wacom's smoothing over 7 results per loop). An even 1000 / 2000 reports/s on the stock scan: v3.29 / v3.28 (see below).
 
 Full experiment log: [SENSOR_LINK.md](SENSOR_LINK.md).
 
@@ -19,8 +20,8 @@ Full experiment log: [SENSOR_LINK.md](SENSOR_LINK.md).
 - The burst pattern can't be shortened or rearranged: every attempt (skipping or shortening P, shorter
   position bursts, extra position scans between data scans, moving S2's coils) broke pressure, side buttons
   or hover. Listening on neighbour coils during S2 did give a second real position per loop, but a noisier one
-  (wavy diagonals), so ~206 real positions/s is what ships. Higher report rates are Wacom's (or our) positions
-  between measurements.
+  (wavy diagonals) until the readings were normalised per burst (v3.62, below): two real positions per
+  loop, ~2 x 201/s. Higher report rates are Wacom's (or our) positions between measurements.
 
 ## Steps that led to v2.45 (all kept)
 
@@ -70,7 +71,7 @@ lists in the sensor register image (0x2001D358) and skips the frame in those loo
 
 ## Input lag (estimated) and report rate
 
-All builds measure the pen the same ~206 times per second (one position scan per ~4.85 ms loop; the pen's
+Builds up to v3.29 measure the pen ~201-206 times per second (one position scan per ~4.9 ms loop; the pen's
 burst pattern can't be changed without breaking pressure / buttons / hover). "Lag" is the estimated average
 delay from pen movement to the tablet's USB report, excluding the PC. Built from measured pieces, not an
 end-to-end measurement. Every custom build shares Wacom's own processing (~5.6 ms, itself estimated from "output
@@ -89,6 +90,89 @@ half a tick older (+0.25 ms).
 | v2.99 | 1000 (even) | ~9 ms | fixed 6 ms interpolation delay from frame hand-over + Wacom's 2-scan per-scan average (~2.4 ms) + USB (~0.5 ms) |
 | v3.29 | 1000 (even) | ~8.5 ms | Wacom's own output at frame hand-over (~5.6 ms: v2.45's 7 ms minus its calc -> USB and USB parts) + ~2.5 ms fixed delay behind it (3.25 ms on the even loop timeline, whose stamps are ~0.75 ms earlier than arrival on average) + USB (~0.5 ms) |
 | v3.28 | ~1900-2000 (even, 2 per packet) | ~9 ms | as v3.29; the first report of each packet is half a tick older (+0.25 ms avg) |
+| v3.62 | ~400 (even, one per real measurement) | ~7-8 ms | Wacom's own processing: a constant 4-result average over S1 / S2 results (~2 x 201/s, so it spans ~1 loop like v2.45's) + calc -> USB (~0.9 ms) + USB (~0.5 ms); no added delay |
+| v3.78 | ~1500 (2 per USB packet) | ~7-8 ms | Wacom's own processing, constant 7-result average over ~7 results per loop (~1 loop, like v2.45's 4 of 4) + calc -> USB (~0.9 ms) + USB (~0.5 ms); a result that waits for its USB partner adds up to 1 ms (~5 % of reports) |
+
+## v3.78 (~1500 Hz, experimental): two real measurements, 7 Wacom results per loop
+
+`firmware/pth660_v378_1500hz.pkg`, sources `build/v378/` (own copies of `make_s2c.py`, `s2x/*.c`; the v3.62 files in
+`build/` are unchanged so v3.62 still rebuilds byte-identically). Base `build/v378/base/slot_?_f7_base.bin`:
+`make_frame2.py --steps 29,28,27,26,25 --pstep --calc1` on the stock images, then `make_frame23.py`: Wacom's calc
+gets a frame after steps 23 (only when the coil window is unchanged, as v2.45), 24 (S1), 25-27 (transmit-only steps:
+the frame holds a complete S1 and the last complete pen data; v3.08 pushed mid-S2 frames and broke buttons), 28 and
+29 (S2). Second measurement per loop as v3.62 (S2 engine, `--layout1`), plus:
+- S2 only with a strong signal (peak >= 2000) and a same-coil match within +-10 % (`--s2gate`; offline replay on
+  ~3000 logged loops: S2 error rms -30 %, 70 % of loops still injected). Tested and rejected on the same data: gain
+  ratio smoothed over loops (1.6-3.6x worse), weighting by strength and pass a / b agreement (no change)
+- stock S2 at the top / left edge window (the injection is always rejected there; v3.70-v3.72 tried S2 at the edge:
+  never usable and 1-7 ms pressure drops = double clicks while dragging)
+- S1 profile entries restored in the work area right after the step-29 push (`--restore`): the next loop's step-23
+  frame carries S1 data only, not the older S2 injection (hover jitter -28 %, tip -24 % in a still test)
+- Wacom's filter table: constant 7-result window drawing and hover (`--mawin 7 --mahover 7`, ~1 loop)
+- calc task takes waiting frames at once (`--calcdrain`; with 7 frames per loop its 3-slot ring overflowed at the
+  stock 1 ms poll: ~770 results/s)
+
+Output (`build/v378/s2x/nat.c`, `--minimal --multi --pair --nodrop`): every calc result is reported (Wacom's own
+report), up to two per 1 ms HID tick, always two per USB packet (a lone one waits a tick). Fixes found on the way:
+- single-report packets were lost when the send timing drifted against the host's 1 ms polling (ST's SendReport drops
+  a report while the endpoint is busy): packets now go through a 4-packet FIFO and are handed to the endpoint only
+  when it is idle, retried on every 1 ms USB pass (`USBDEV` resolved from the send wrapper)
+- after the pen re-entered, Wacom's calc sometimes cleared the X / Y valid bits of level-3 extra-frame results and
+  its pen routine skipped them (~350 reports/s until reboot; counters `--natdiag`): `--keepvalid` sets them again
+  for steps 23 / 25-28 when the loop's S1 result was valid (the mail block is the put call's r1)
+- `--edgesm`: top / left strip (Wacom extrapolates in coil window 0, 3-12x the centre's jitter when slow): per-axis
+  average of the last 1-16 reports by speed, full weight below 5000 counts, none above 8000, applied to the copy on
+  its way to USB (smoothing Wacom's record buffer disturbed its pen routine)
+
+Measured on one tablet: ~1470-1550 reports/s steady over 90 s with pen exits / re-entries; edge jitter p90 (4 ms
+steps) hover slow 85.8 -> 17.3, tip still 24.5 -> 6.3 (v3.69 -> v3.75); still test (rms counts) tip 23.7 vs v2.45's
+21.6, hover 43.8 vs 23.8 (v2.45 smooths slow hover over up to 12 results, ~16 ms).
+
+Build (byte-identical; needs arm-none-eabi-gcc), in `build/v378/`: `python make_s2c.py --slot a --in
+base/slot_a_f7_base.bin --out slot_a_v378.bin --version 0x0378 --output --minimal --multi --pair --edgesm --natdiag
+--keepvalid --nodrop --calcdrain --restore --s2gate 2000 --double --s2norm --layout1 --lean --mawin 7 --mahover 7`
+(same for slot b), then `../make_pkg.py`.
+
+## v3.62 (~400 Hz): two real measurements per loop
+
+`firmware/pth660_v362_400hz.pkg`. Base: the v1.61 frame setup (`make_frame2.py --steps 29 --calc1` on the stock
+images, `build/base/slot_?_v161_f29.bin`): Wacom's calc gets a frame after step 24 (position scan S1) and after
+step 29 (pen-data scan S2), nothing else. The S2 engine (`build/s2x/s2x.c`, `--s2norm --layout1`) adds the second
+real position of the loop:
+- the step hook rewrites only the receive coil list of the two S2 passes (transmit stays on the peak):
+  pass a X P L R P P P / Y P P P L R P, pass b X P P P R L P / Y P R L P P P (P peak, L / R neighbours); only when
+  both axes' neighbours are known and the last S1 was centred on the pen
+- at each S2 result the peak-axis readings are copied over the moved axis's readings before Wacom decodes the pen
+  word (both axes always carry the same bits), so pressure, buttons and hover stay Wacom's own
+- after pass b, every neighbour reading is divided by the other axis's peak reading of the SAME burst (cancels the
+  pen's signal swings) and corrected by the X/Y gain ratio of bursts 0 / 5
+- the normalised left / right go into the frame's profile entries 3 / 5 before the step-29 push, so Wacom's calc
+  computes a second position from them; skipped if the S2 peak doesn't match the frame's centre coil (+-20 %), at
+  the top / left edge window, or when either axis lacks readings. The S2 positions have no systematic offset
+  (~5 counts) and about twice S1's scatter.
+
+Wacom's position filter table is patched to a constant 4-result moving average (`--mawin 4 --mahover 4`, drawing
+and hover). With S1 / S2 alternating, any even window keeps the reports evenly spaced along the stroke; 2 results
+let S2's scatter through (ruler diagonals 27 rms), and the stock hover window (4..12, +-1 per result with speed)
+swings at 400 results/s so the cursor alternated half / 1.5x speed.
+
+Output (`--minimal`, `build/s2x/nat.c`, ~2.4 KB with the S2 engine): exactly Wacom's report for each calc result,
+so one per S1 and one per S2 frame, ~400/s even; when S2 is skipped the step-29 report is Wacom's result of that
+frame (no hole in fast strokes). Hover signal dips, where Wacom clears the in-range bit for ~10-120 ms while it
+keeps tracking the pen, are passed on as in range for up to 150 ms after its last in-range record, except records
+jumping > 2500 counts (Wacom's far-hover corner glitch). No re-timing, interpolation, prediction or diagnostics.
+
+Measured on one tablet: ~400 reports/s at any speed, no dropped reports while the tip is down; hover: 2 range
+drops in 25 s (v3.51: 68); ruler diagonals ~9-13 counts rms (v2.45 14.6), short-range jitter 5.1. Remaining
+gaps: at the very edge of hover range Wacom's own slower search scan (~9 ms) runs instead of the normal loop.
+
+Tried on the way: one report per injected measurement only (v3.45, ~300/s in fast strokes: the pen crossing a
+coil between S1 and S2 skips S2), a 2 kHz re-timed variant (v3.46), the v1.65 base with its duplicate step-28 S1
+frame (reports alternated 1:2.5 in spacing), instant window narrowing (catch-up jumps in hover).
+
+Build (byte-identical to the shipped package; needs arm-none-eabi-gcc):
+`python build/make_s2c.py --slot a --in build/base/slot_a_v161_f29.bin --out slot_a_v362.bin --version 0x0362
+--output --minimal --s2norm --layout1 --lean --mawin 4 --mahover 4` (same for slot b), then `make_pkg.py`.
 
 ## v3.28 (2000 Hz) and v3.29 (1000 Hz): even output, real positions only
 
@@ -129,7 +213,7 @@ instead of `--double`; same for slot b), then `make_pkg.py`.
   reads the pen's bits on the peak coil with both axes. Listening on the neighbour coils with one axis during S2
   (the other keeps reading the bits) gave a second real position per loop (~410/s) with pressure / buttons /
   hover intact, but those positions are about twice as noisy as the normal scan (they ride on the data bits):
-  diagonal wobble 26 vs 15 counts rms. Shelved (`build/s2x/s2x.c`, not hooked with `--nos2`).
+  diagonal wobble 26 vs 15 counts rms. Shelved then; normalising each neighbour reading by the other axis's peak reading of the same burst fixed the noise, which is what v3.62 ships.
 - Pushing 8 frames per loop into Wacom's calc (+ USB packing): 1312 reports/s, but Wacom's filters count frames:
   buttons, pressure and random flickers broke.
 

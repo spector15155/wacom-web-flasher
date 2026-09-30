@@ -36,6 +36,9 @@
 #define ESZ      0x80
 #define MAGIC    0x53325835u
 #define ONE      1000
+#ifndef S2MIN
+#define S2MIN    2000
+#endif
 #define CALC_X   (*(volatile int32_t *)(0x20010E0C + 0xFA4))
 #define CALC_Y   (*(volatile int32_t *)(0x20010E0C + 0x10D8))
 #define STEPB    (*(volatile uint8_t *)STEP_ADDR)
@@ -52,6 +55,10 @@ struct state {
     uint32_t inj_x, inj_y, gate_x, gate_y;
     uint8_t cen[4];         /* S1 program centred (slot 4 = TX peak): X pass a, X pass b, Y pass a, Y pass b */
     uint8_t pmask, pad2[3]; /* axes moved in the last pass a program */
+    uint8_t saved[40];      /* RESTORE: S1 profile entries 3 / 5 (X, Y) before the injection */
+    uint8_t has_saved, pad3[3];
+    uint8_t ek[2], ekl[2];  /* EDGE2: peak window offset per axis from S1 pass a (4 = centred), latched at S2 */
+    uint8_t rk[2], pad5[2]; /* RESTORE: peak offset of the saved entries */
     uint32_t magic;
 };
 
@@ -89,6 +96,19 @@ void s2x_step(void)
         mask |= 2;
     uint8_t xl = s->nb[1], xr = s->nb[2], yl = s->nb[5], yr = s->nb[6];
 
+#ifdef S2GATE
+    /* top / left edge window (Wacom clamps the coil window, first window starts at 0): the injection is always
+     * rejected there, so leave S2 stock (v3.67 log: ~190 rewrites/s near the edges, 0 used) */
+#ifdef EDGE2
+    /* first window: usable when the peak sits at offset 1..4 of it (4 = centred on coil 4 of the border) */
+    if ((FRAME[0x0C] == 0 && !(s->ek[0] >= 1 && s->ek[0] <= 4)) ||
+        (FRAME[0xB6] == 0 && !(s->ek[1] >= 1 && s->ek[1] <= 4)))
+        mask = 0;
+#else
+    if (FRAME[0x0C] == 0 || FRAME[0xB6] == 0)
+        mask = 0;
+#endif
+#endif
 #ifdef S2NORM
     /* ratio-normalised layout (both axes needed): bursts 0 and 5 both on the peak (X/Y gain ratio), the others one
      * axis on a neighbour while the other stays on its peak, so dividing the two channels of a burst cancels the
@@ -109,6 +129,7 @@ void s2x_step(void)
         if (mask & 1) { IMG[0x17] = xl; IMG[0x18] = xr; IMG[0x19] = xl; }
         if (mask & 2) { IMG[0x21] = yl; IMG[0x22] = yr; IMG[0x23] = yl; }
 #endif
+        s->ekl[0] = s->ek[0]; s->ekl[1] = s->ek[1];
         s->coils[0] = xl; s->coils[1] = px; s->coils[2] = xr;
         s->coils[3] = yl; s->coils[4] = py; s->coils[5] = yr;
         s->pmask = mask;
@@ -136,8 +157,29 @@ void s2x_step(void)
                     if (a == b) { s->nb[3] = px; s->nb[2] = a; s->cen[1] = 1; }
                     else        { s->nb[0] = px; s->nb[1] = a; s->cen[0] = 1; }
                 }
-            } else {
+                s->ek[0] = 4;
+            }
+#ifdef EDGE2
+            else if (FRAME[0x0C] == 0 && IMG[0x1A] != IMG[0x1C]) {
+                /* pass a of the clamped left window (slots = offsets 0,1,2,3,4,9): peak at offset 1..3, both
+                 * neighbours are in this list; pass b (offsets 8..4) has none of them and keeps these */
+                int k = IMG[0x18] == px ? 1 : IMG[0x19] == px ? 2 : IMG[0x1A] == px ? 3 : 0;
+                if (k) {
+                    s->nb[0] = s->nb[3] = px;
+                    s->nb[1] = IMG[0x17 + k - 1];
+                    s->nb[2] = IMG[0x17 + k + 1];
+                    s->cen[0] = s->cen[1] = 1;
+                } else {
+                    s->cen[0] = s->cen[1] = 0;
+                }
+                s->ek[0] = (uint8_t)k;
+            } else if (FRAME[0x0C] == 0 && s->ek[0] >= 1 && s->ek[0] <= 3) {
+                /* pass b of an edge loop */
+            }
+#endif
+            else {
                 s->cen[0] = s->cen[1] = 0;
+                s->ek[0] = 0;
             }
             if (IMG[0x22] == py) {
                 uint8_t a = IMG[0x21], b = IMG[0x23];
@@ -145,8 +187,26 @@ void s2x_step(void)
                     if (a == b) { s->nb[7] = py; s->nb[6] = a; s->cen[3] = 1; }
                     else        { s->nb[4] = py; s->nb[5] = a; s->cen[2] = 1; }
                 }
-            } else {
+                s->ek[1] = 4;
+            }
+#ifdef EDGE2
+            else if (FRAME[0xB6] == 0 && IMG[0x21] != IMG[0x23]) {
+                int k = IMG[0x1F] == py ? 1 : IMG[0x20] == py ? 2 : IMG[0x21] == py ? 3 : 0;
+                if (k) {
+                    s->nb[4] = s->nb[7] = py;
+                    s->nb[5] = IMG[0x1E + k - 1];
+                    s->nb[6] = IMG[0x1E + k + 1];
+                    s->cen[2] = s->cen[3] = 1;
+                } else {
+                    s->cen[2] = s->cen[3] = 0;
+                }
+                s->ek[1] = (uint8_t)k;
+            } else if (FRAME[0xB6] == 0 && s->ek[1] >= 1 && s->ek[1] <= 3) {
+            }
+#endif
+            else {
                 s->cen[2] = s->cen[3] = 0;
+                s->ek[1] = 0;
             }
         }
     }
@@ -301,8 +361,14 @@ static void inject(volatile uint8_t *e, uint8_t mask)
     e[0xA] = 0;
     e[0x70] = FRAME[0x0C];
     e[0x71] = FRAME[0xB6];
+    int kk[2] = {4, 4};
+#ifdef EDGE2
+    for (int ch = 0; ch < 2; ch++)
+        if (s->ekl[ch] >= 1 && s->ekl[ch] <= 3)
+            kk[ch] = s->ekl[ch];
+#endif
     for (int ch = 0; ch < 2; ch++) {
-        volatile uint8_t *ent = FRAME + (ch == 0 ? 0x11 : 0xBB) + 30;
+        volatile uint8_t *ent = FRAME + (ch == 0 ? 0x11 : 0xBB) + 10 * (kk[ch] - 1);   /* entries k-1, k, k+1 */
         for (int k = 0; k < 3; k++)
             wr16(e + (ch == 0 ? 0x64 : 0x6A) + 2 * k, rd16(ent + 10 * k));
         if (!(mask & (1 << ch)) || !lpr(e, ch, &L[ch], &P[ch], &R[ch]))
@@ -312,13 +378,27 @@ static void inject(volatile uint8_t *e, uint8_t mask)
         wr16(e + (ch == 0 ? 0x76 : 0x7C), R[ch]);
         /* first window: Wacom's edge extrapolation (clamped windows are excluded by the centring check) */
         int s1p = rd16(ent + 10);
-        if (FRAME[ch == 0 ? 0x0C : 0xB6] == 0 || s1p < 200)
+        uint8_t w0 = FRAME[ch == 0 ? 0x0C : 0xB6];
+        /* an edge offset (k 1..3) only in the clamped first window; centred (k 4) in any window with EDGE2 */
+#ifdef EDGE2
+        if ((kk[ch] != 4 && w0 != 0) || s1p < 200)
             continue;
+#else
+        if (w0 == 0 || s1p < 200)
+            continue;
+#endif
         /* the frame's entry 4 must be the coil S2 listened around: Wacom may have re-centred its window between
          * the S1 scan in the frame and this S2 (v3.10 log: P2/P1 far from 1 in >10 % of loops -> sideways jumps).
          * Same coil within ~2 ms reads the same amplitude (matched loops: ratio medians agree to 0.005). */
+#ifdef S2GATE
+        /* v3.67: S2 only with a strong signal (offline replay: peak < 2000 -> 3-5x the error, noisier than S1) and a
+         * tighter same-coil match (+-10 %): S2 error rms -30 %, 70 % of loops still injected (75 % before) */
+        if (P[ch] < S2MIN || P[ch] * 11 < s1p * 10 || P[ch] * 10 > s1p * 11)
+            continue;
+#else
         if (P[ch] * 5 < s1p * 4 || P[ch] * 4 > s1p * 5)
             continue;
+#endif
         ok |= 1 << ch;
     }
     /* both axes or neither: a new X with the old Y (or the reverse) puts the point off the stroke */
@@ -327,8 +407,19 @@ static void inject(volatile uint8_t *e, uint8_t mask)
         return;
     }
 #ifndef NOINJECT
+#ifdef RESTORE
     for (int ch = 0; ch < 2; ch++) {
-        volatile uint8_t *ent = FRAME + (ch == 0 ? 0x11 : 0xBB) + 30;
+        volatile uint8_t *ent = FRAME + (ch == 0 ? 0x11 : 0xBB) + 10 * (kk[ch] - 1);
+        for (int j = 0; j < 10; j++) {
+            s->saved[ch * 20 + j] = ent[j];
+            s->saved[ch * 20 + 10 + j] = ent[20 + j];
+        }
+        s->rk[ch] = (uint8_t)kk[ch];
+    }
+    s->has_saved = 1;
+#endif
+    for (int ch = 0; ch < 2; ch++) {
+        volatile uint8_t *ent = FRAME + (ch == 0 ? 0x11 : 0xBB) + 10 * (kk[ch] - 1);
         /* keep S1's peak amplitude, give entries 3 / 5 the S2 left / right ratios */
         int s1p = rd16(ent + 10);
         scale_entry(ent, L[ch] * s1p / P[ch]);
@@ -412,3 +503,24 @@ void s2x_event(uint8_t *r)
     *(volatile uint32_t *)e = q;
     s->idx = (s->idx + 1) % NLOG;
 }
+
+#ifdef RESTORE
+/* called from the ring push hook once the step-29 frame is copied to the stage: put S1's own entries 3 / 5 back, so
+ * frames pushed later from the same work area (next loop's step 23: new S1 pass a + this loop's pass b) carry S1
+ * data only, as in v2.45, not the S2 injection of an older pen position */
+void s2x_restore(void)
+{
+    volatile struct state *s = ST;
+    if (s->magic != MAGIC || !s->has_saved)
+        return;
+    s->has_saved = 0;
+    for (int ch = 0; ch < 2; ch++) {
+        int k = s->rk[ch] >= 1 && s->rk[ch] <= 4 ? s->rk[ch] : 4;
+        volatile uint8_t *ent = FRAME + (ch == 0 ? 0x11 : 0xBB) + 10 * (k - 1);
+        for (int j = 0; j < 10; j++) {
+            ent[j] = s->saved[ch * 20 + j];
+            ent[20 + j] = s->saved[ch * 20 + 10 + j];
+        }
+    }
+}
+#endif

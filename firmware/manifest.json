@@ -32,7 +32,78 @@
           "sha256": "5a720d36964e04b5f2fdceffd652d9cc2b5cbeea843b914ccfb269fee8f47df4"
         }
       ],
-      "lag": "~7 ms"
+      "lag": "~7 ms",
+      "short": "Method: more Wacom runs. Same ~200 measurements/s as stock, Wacom's calculation runs 4 times per measurement: 4 small cursor steps instead of 1 big one (~730 reports/s). Smooth, calm hover, the most tested.",
+      "method": "more Wacom runs",
+      "howto": [
+        "m2"
+      ]
+    },
+    {
+      "file": "pth660_v378_1500hz.pkg",
+      "size": 682263,
+      "sha256": "fb1b153405a125402b5115a7c668ce1eafe78b0162517ede2cc3943603b00028",
+      "id": "v3.78",
+      "title": "v3.78 (~1500 Hz, 2 real measurements per loop)",
+      "recommended": false,
+      "kind": "experimental",
+      "summary": "Two real measurements per scan loop as v3.62 (S1 position scan + S2 pen-data scan listening on the neighbour coils, normalised per burst; S2 only with a strong signal and a matching coil, stock S2 at the top / left edge). Wacom's calc gets up to 7 frames per loop (steps 23-29; step 23 only when the coil window is unchanged, 25-27 are transmit-only steps with complete data) and averages a constant 7 results (~1 loop), so ~1500 results/s, each a real Wacom output, sent two per USB packet. Top / left strip (Wacom extrapolates there): extra smoothing when the pen is slow or still, none when fast. Includes fixes for USB packets lost to the host's polling (waits for the endpoint, small packet queue) and for Wacom marking extra-frame results invalid after the pen re-enters (rate fell to ~350/s).",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0378",
+          "base": "0x08040000",
+          "size": 340480,
+          "sha256": "e8cbe9b28bc631b25ae4e134fe8d2da64d940c81104747ddebba048cebeefd9e"
+        },
+        {
+          "slot": "b",
+          "version": "0x0378",
+          "base": "0x080A0000",
+          "size": 340992,
+          "sha256": "0e939d2a37210177a417591cefbd62adadfa1130291b80c881ec889bddb1188d"
+        }
+      ],
+      "lag": "~7-8 ms",
+      "short": "Method: two measurements, like v3.62 (~400 measurements/s), plus more Wacom runs: its calculation runs ~7 times per scan, ~1500 reports/s sent two per USB packet. Calmer top / left edges. Newest and least tested.",
+      "method": "two measurements",
+      "howto": [
+        "m4",
+        "m6"
+      ]
+    },
+    {
+      "file": "pth660_v362_400hz.pkg",
+      "size": 675074,
+      "sha256": "7432f83f8d17c2611b453c181217707d089aa8d9417f6d24613bc35f6290f716",
+      "id": "v3.62",
+      "title": "v3.62 (~400 Hz, 2 real measurements per loop)",
+      "recommended": false,
+      "kind": "custom",
+      "summary": "Two real position measurements per scan loop instead of one, ~400 reports/s, evenly spaced. Besides the normal position scan (S1), the pen-data scan (S2) listens on the neighbour coils of one axis while the other axis keeps reading the pen's bits, so pressure, buttons and hover stay Wacom's own. Each neighbour reading is divided by the other axis's peak reading of the same burst, and the result goes into Wacom's own position calculation as a second measurement (skipped when unsafe, e.g. while the pen crosses to the next coil). Wacom's calc gets only the S1 and S2 frames, averaged over a constant 4 results, and exactly one report is sent per frame: no re-timing, interpolation or prediction. Short hover signal dips (Wacom clears 'in range' while still tracking) are passed on as in range for up to 150 ms.",
+      "images": [
+        {
+          "slot": "a",
+          "version": "0x0362",
+          "base": "0x08040000",
+          "size": 336896,
+          "sha256": "8826e3e6bfbd7a9d9d1739048447b89560ac85d89698770d3b7967da42eb6081"
+        },
+        {
+          "slot": "b",
+          "version": "0x0362",
+          "base": "0x080A0000",
+          "size": 337408,
+          "sha256": "a4beb391869c4a326c4770b557c18e37f8bdf86158f12294ea11992d2da2eb5d"
+        }
+      ],
+      "lag": "~7-8 ms",
+      "short": "Method: two measurements. The pen-data part of each scan also locates the pen, so it is measured twice per scan (~400 times/s). Exactly one report per measurement (~400/s, evenly spaced), nothing added in between.",
+      "method": "two measurements",
+      "howto": [
+        "m4",
+        "m5"
+      ]
     },
     {
       "file": "pth660_v328_2000hz.pkg",
@@ -59,7 +130,12 @@
           "sha256": "bc2ff81dae1f223e4f00baeb451b7aefd3aefe73b679a9e2a728fb7f39207420"
         }
       ],
-      "lag": "~9 ms"
+      "lag": "~9 ms",
+      "short": "Method: even output. Same as v3.29 with two reports every 1 ms (2000/s), sent together in one USB packet.",
+      "method": "even output",
+      "howto": [
+        "m3"
+      ]
     },
     {
       "file": "pth660_v329_1000hz.pkg",
@@ -86,7 +162,12 @@
           "sha256": "09e37e29940788025c5150e1cd76348ccd307279589e3d17069e63864e08c44a"
         }
       ],
-      "lag": "~8.5 ms"
+      "lag": "~8.5 ms",
+      "short": "Method: even output. v2.45's measurements, reports placed exactly every 1 ms (1000/s) on the path between measured positions, no prediction. Improved timing over v2.99.",
+      "method": "even output",
+      "howto": [
+        "m3"
+      ]
     },
     {
       "file": "pth660_v299_1000hz.pkg",
@@ -113,7 +194,12 @@
           "sha256": "218d94dcd553a8014c6efcbcab88ee9ca206e5fdda420abda5a674b2a104a054"
         }
       ],
-      "lag": "~9 ms"
+      "lag": "~9 ms",
+      "short": "Method: even output. v2.45's measurements, then our own output places one report exactly every 1 ms (1000/s) on the path between measured positions, no prediction. Earlier version of v3.29.",
+      "method": "even output",
+      "howto": [
+        "m3"
+      ]
     },
     {
       "file": "pth660_v165_600hz.pkg",
@@ -140,7 +226,12 @@
           "sha256": "8c5c4f0f1a8a6d65dbd40df1ef06fcb84ebd30922d1a3d1a99b55fd34f2c5bcf"
         }
       ],
-      "lag": "~8 ms"
+      "lag": "~8 ms",
+      "short": "Method: more Wacom runs. Same ~200 measurements/s as stock, but Wacom's own position calculation runs 3 times per measurement, so its smoothing steps towards each new position in 3 smaller moves (~600 reports/s). Superseded by v2.45.",
+      "method": "more Wacom runs",
+      "howto": [
+        "m2"
+      ]
     },
     {
       "file": "pth660_stock_v151_v152.pkg",
@@ -167,7 +258,12 @@
           "sha256": "4442c7cf83c4879c5171d2f4d39a613c346e8b5ae4b02251ea9dc4a0ea1c4e4c"
         }
       ],
-      "lag": "~13 ms"
+      "lag": "~13 ms",
+      "short": "The original Wacom firmware. The pen is measured ~200 times per second and each measurement gives one report (~200 reports/s).",
+      "method": "factory",
+      "howto": [
+        "m1"
+      ]
     }
   ]
 }

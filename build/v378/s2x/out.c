@@ -112,6 +112,10 @@ struct out {
     uint32_t nat_have, n_native, n_nat_skip, n_nat_stock;
     int32_t nat_hx[4], nat_hy[4];
     uint32_t nat_n;
+    /* DIPKEEP (appended): hover signal dips passed on as in range (see nat.c) */
+    uint32_t dip_in;                    /* time of Wacom's last own in-range record */
+    int32_t dlx, dly;                   /* last in-range position */
+    uint32_t n_kept;
 };
 
 #ifndef NATAVG
@@ -149,7 +153,12 @@ void out_push(void)
      * measured loop period after this loop's step-24 frame instead. */
     uint32_t now = DWT_CYC;
     uint8_t st = STEPB;
-#ifdef PHASE3
+#if defined(PHASE2)
+    /* v1.61 base: 2 frames per loop (S1 step 24, S2 step 29). Wacom's even-window average over the alternating
+     * S1 / S2 positions puts both results' content half a loop apart, so they are stamped at 0 and T/2 */
+    int ph = st == 24 ? 0 : st == 29 ? 1 : -1;
+#define NPH 2
+#elif defined(PHASE3)
     /* v1.65 base: 3 frames per loop (steps 24, 28, 29) -> 0, 1/3, 2/3 of the loop */
     int ph = st == 24 ? 0 : st == 28 ? 1 : st == 29 ? 2 : -1;
 #define NPH 3
@@ -581,6 +590,31 @@ uint32_t out_hid(void)
     if (o->hn && o->rec_ok) {                   /* headroom: how old is the newest point right now */
         uint32_t age = (now - o->h[(o->hn - 1) % NH].t) / (500 * CYC_US);
         o->age_hist[age > 15 ? 15 : age]++;
+    }
+#endif
+#ifdef DIPKEEP
+    /* signal dip: in fast or high hover Wacom clears the in-range bit for ~10-120 ms while it keeps tracking the pen
+     * (these records carry its moving real positions). Within DIPKEEP ms of its last in-range record they are
+     * treated as in range, except jumps > 2500 counts (Wacom's far-hover corner glitch). */
+    for (uint32_t k = 0; k < cnt && k < 3; k++) {
+        volatile uint8_t *r = rec + 27 * k;
+        if (r[0] != 0x10)
+            continue;
+        int32_t px = r[2] | r[3] << 8 | r[4] << 16, py = r[5] | r[6] << 8 | r[7] << 16;
+        if (r[1] & 0x20) {
+            o->dip_in = now;
+            o->dlx = px;
+            o->dly = py;
+        } else if ((r[1] & 0x40) && o->dip_in && (uint32_t)(now - o->dip_in) <= DIPKEEP * 1000u * CYC_US &&
+                   (px | py) != 0) {
+            int32_t dx = px - o->dlx, dy = py - o->dly;
+            if ((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy) > 2500)
+                continue;
+            o->dlx = px;
+            o->dly = py;
+            r[1] |= 0x20;
+            o->n_kept++;
+        }
     }
 #endif
     for (uint32_t k = 0; k < cnt && k < 3; k++) {
