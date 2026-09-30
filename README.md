@@ -20,9 +20,9 @@ pth660-webflash/
 ├── firmware/                 packages to offer in the UI
 │   ├── manifest.json         list for the UI: title, method, short + detailed description, lag, recommended flag, sha256, per-slot images
 │   ├── pth660_v245_best.pkg                 v2.45, recommended (~730 reports/s, lag ~7 ms est.)
-│   ├── pth660_v385_750hz.pkg                v3.85, v2.45 + second real measurement per loop (~750 reports/s, lag ~7 ms est.)
+│   ├── pth660_v385_750hz.pkg                v3.85, recommended: v2.45 + second real measurement per loop (~750 reports/s, lag ~7 ms est.)
 │   ├── pth660_v378_1500hz.pkg               v3.78, ~1500 reports/s, 2 real measurements per loop, experimental (lag ~7-8 ms est.)
-│   ├── pth660_v362_400hz.pkg                v3.62, recommended, ~400 even reports/s, 2 real measurements per loop (lag ~7-8 ms est.)
+│   ├── pth660_v362_400hz.pkg                v3.62, ~400 even reports/s, 2 real measurements per loop (lag ~7-8 ms est.)
 │   ├── pth660_v328_2000hz.pkg               v3.28, ~2000 even reports/s (2 per USB packet), real positions only (lag ~9 ms est.)
 │   ├── pth660_v329_1000hz.pkg               v3.29, 1000 even reports/s, real positions only (lag ~8.5 ms est.)
 │   ├── pth660_v299_1000hz.pkg               v2.99, 1000 even reports/s interpolated from real scans (lag ~9 ms est.)
