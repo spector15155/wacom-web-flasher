@@ -11,7 +11,7 @@ v1.65 and v2.99 are older steps kept in the flasher under "Older builds".
 | **v2.45** (recommended) | more Wacom runs | ~200 | ~730 | ~7 ms |
 | v2.99 (older, replaced by v3.29) | even output | ~200 | 1000 | ~9 ms |
 | v3.29 / v3.28 | even output | ~200 | 1000 / 2000 | ~8.5 / ~9 ms |
-| v3.62 | two measurements | ~400 | ~400 | ~7-8 ms |
+| **v3.96** (recommended) | two measurements, shorter power phase | ~448 | ~448 | ~7 ms |
 | **v3.85** (recommended) | two measurements + more Wacom runs | ~400 | ~750 | ~7 ms |
 | v3.78 (experimental) | two measurements + more Wacom runs | ~400 | ~1500 | ~7-8 ms |
 
@@ -32,7 +32,7 @@ v1.65 and v2.99 are older steps kept in the flasher under "Older builds".
    moves in several smaller steps instead of one jump. No new measurements.
 2. **Even output** (v2.99, v3.29, v3.28): a new output stage places reports at exact 1 ms (0.5 ms) intervals on the
    path between positions Wacom has already delivered. No prediction.
-3. **Two measurements** (v3.62, v3.78): during S2 one axis listens on the pen's neighbour coils while the other keeps
+3. **Two measurements** (v3.96, v3.78, v3.85): during S2 one axis listens on the pen's neighbour coils while the other keeps
    reading the bits, which gives a second real position per loop.
 
 ## v2.45 (recommended): more Wacom runs
@@ -79,9 +79,37 @@ its 4-result moving average); the HID task sends one report on every 1 ms tick, 
 the two newest real positions at "now - 6 ms" (never past the newest point). Measured 997 reports/s in range. v3.29
 does the same job with better timing. Build: `make_cycles.py --k 0 --upsample 6 --perscan`.
 
-## v3.62 (~400 Hz): two measurements
+## v3.96 (~450 Hz): v3.62 with a shorter power phase
 
-`firmware/pth660_v362_400hz.pkg`. Base: the v1.61 frame setup (`make_frame2.py --steps 29 --calc1` on the stock
+`firmware/pth660_v396_450hz.pkg`, sources `build/v396/` (v3.62's `make_s2c.py` + `s2x/` with one option added).
+Every loop Wacom charges the pen with a continuous carrier of 13 transmit bursts (power programs 4 + 3 + 3 + 3 bursts
+of 1008 ticks, 1.64 ms), then a short sync burst. Tested on one tablet:
+
+| Power bursts | Loop | Loops/s | Pen |
+|---|---|---|---|
+| 13 (stock) | 4.97 ms | 201 | OK |
+| 10 (v3.95) | 4.59 ms | 218 | OK, like stock |
+| **9 (v3.96)** | **4.47 ms** | **224** | **OK, like stock** |
+| 8 (v3.97) | 4.34 ms | 230 | not working properly |
+| 7 (EXP-20, v1.71) | 4.21 ms | 237 | jitter, no pressure |
+
+- `build/make_pburst.py --calls 3`: the last power program runs 2 times instead of 3 (step 25 count 3 -> 2) and Wacom's
+  burst countdown is seeded with 3 instead of 4, so the sync burst still follows the last power program
+- `--p8c 3`: the step hook shortens the first power program (header 0x8C) from 4 to 3 bursts (burst count +3,
+  step period +0x46 = 3 x 1008 + 8)
+- the carrier is never interrupted: pauses inside it (tested down to 27 us, v3.90-v3.94) look like the sync to the pen
+  and break pressure / buttons; listening during the power phase is not possible (no coil selectivity in transmit mode)
+
+Everything else is v3.62 (below). Measured: ~436-449 reports/s, one per real measurement.
+
+Build (byte-identical; needs arm-none-eabi-gcc): `python build/make_pburst.py --in build/base/slot_a_v161_f29.bin
+--slot a --calls 3 --out base_a.bin`, then in `build/v396/`: `python make_s2c.py --slot a --in base_a.bin --out
+slot_a_v396.bin --version 0x0396 --output --minimal --s2norm --layout1 --lean --mawin 4 --mahover 4 --p8c 3` (same for
+slot b), then `../make_pkg.py`.
+
+## v3.62 (~400 Hz, replaced by v3.96): two measurements
+
+No longer in the flasher: v3.96 is the same build with a shorter power phase. Base: the v1.61 frame setup (`make_frame2.py --steps 29 --calc1` on the stock
 images, `build/base/slot_?_v161_f29.bin`): Wacom's calc gets a frame after step 24 (S1) and after step 29 (S2),
 nothing else. The S2 engine (`build/s2x/s2x.c`, `--s2norm --layout1`) adds the second real position of the loop:
 - the step hook rewrites only the receive coil list of the two S2 passes (transmit stays on the peak):
@@ -176,7 +204,7 @@ higher report rate doesn't lower lag by itself.
 | v2.99 | 1000 (even) | ~9 ms | fixed 6 ms interpolation delay from frame hand-over + Wacom's 2-scan per-scan average (~2.4 ms) + USB (~0.5 ms) |
 | v3.29 | 1000 (even) | ~8.5 ms | Wacom's own output at frame hand-over (~5.6 ms) + ~2.5 ms fixed delay behind it + USB (~0.5 ms) |
 | v3.28 | ~1900-2000 (even, 2 per packet) | ~9 ms | as v3.29; the first report of each packet is half a tick older (+0.25 ms avg) |
-| v3.62 | ~400 (one per real measurement) | ~7-8 ms | Wacom's own processing: constant 4-result average over S1 / S2 results (~1 loop, like v2.45) + calc -> USB (~0.9 ms) + USB (~0.5 ms) |
+| v3.96 | ~448 (one per real measurement) | ~7 ms | Wacom's own processing: constant 4-result average over S1 / S2 results (~1 loop of 4.47 ms) + calc -> USB (~0.9 ms) + USB (~0.5 ms) |
 | v3.78 | ~1500 (2 per USB packet) | ~7-8 ms | Wacom's own processing: constant 7-result average over ~7 results per loop (~1 loop) + calc -> USB (~0.9 ms) + USB (~0.5 ms); a result that waits for its USB partner adds up to 1 ms (~5 % of reports) |
 
 ## Useful tools
