@@ -258,8 +258,8 @@ function chooseStep() {
     ${older.length ? `<details class="older" ${olderOpen}><summary>Older builds (replaced by newer ones, kept for reference)</summary>
       <div class="choice">${older.map(([fw, i]) => option(fw, i)).join("")}</div></details>` : ""}
     <p class="note info">Lag = estimated average delay from pen movement to the tablet's USB report (the PC adds its own).
-      v3.78 and v3.85 measure the pen ~2 x 201 times per second, v3.96 ~2 x 224 (shorter power phase), all other
-      builds ~201; higher report rates are
+      v3.78 and v3.85 measure the pen ~2 x 201 times per second, v4.40 ~2 x 226 (shorter charging once the pen is settled), all
+      other builds ~201; higher report rates are
       positions between measured ones (no prediction).<br>
       Three methods: <b>more Wacom runs</b> (Wacom's calculation runs several times per measurement: smaller cursor
       steps), <b>even output</b> (reports at exact 1 ms / 0.5 ms intervals between measured positions) and
@@ -684,11 +684,11 @@ const CHAPTERS = {
     ["m1", "Stock: one measurement, one report per cycle. The cursor jumps and trails the pen."],
     ["m2", "More Wacom runs (v2.45): the same measurements, the cursor moves in smaller steps, closer to the pen."],
     ["m3", "Even output (v3.29, v3.28): a report every 1 ms (0.5 ms), placed between measurements, never ahead."],
-    ["m4", "Two measurements (v3.96, v3.78, v3.85): while the pen sends its data, the neighbouring wires listen too."],
+    ["m4", "Two measurements (v4.40, v3.78, v3.85): while the pen sends its data, the neighbouring wires listen too."],
     ["m4a", "The pen-data step burst by burst: one axis stays on the pen's wire to read the bit, the other listens on a neighbour."],
     ["m4b", "Why divide: a neighbour reading divided by the other axis's reading of the same burst cancels the pen's changing strength."],
     ["m4c", "The ratios replace the neighbour values in Wacom's frame; Wacom's own calculation turns them into the second position."],
-    ["m5", "v3.96: twice the real measurements, one report for each (~448 per second)."],
+    ["m5", "v4.40: twice the real measurements, one report for each (~452 per second)."],
     ["m6", "v3.78: twice the measurements and ~7 Wacom runs per cycle: ~1500 reports per second in fine steps."],
   ],
 };

@@ -59,6 +59,17 @@ struct state {
  * +0x3C phase/2 [pass][ch][6], +0x54 cx, +0x58 cy (per-scan, raw), +0x5C / +0x60 same at the next step-24 event,
  * +0x64 S1 X entries 3,4,5 before inject, +0x6A Y, +0x70 window X, Y, +0x72 X L,P,R, +0x78 Y L,P,R */
 
+#ifdef PDYN
+#define PDS      ((volatile uint32_t *)0x2003F900)   /* [0] magic [1] tracked loops [2] event of last S1 [3] short [4] shortened programs [5] last S1 gain */
+#define PDMAGIC  0x5044594Eu
+#ifndef PDYN_LOOPS
+#define PDYN_LOOPS 32
+#endif
+#ifndef PDYN_GAIN
+#define PDYN_GAIN 205
+#endif
+#endif
+
 static inline int16_t rd16(volatile const uint8_t *p) { return (int16_t)(p[0] | p[1] << 8); }
 static inline void wr16(volatile uint8_t *p, int v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 
@@ -102,12 +113,37 @@ void s2x_step(void)
     if (mask != 3)
         mask = 0;
 #endif
-#ifdef P8C
-    /* first power program (0x8C, 4 transmit-only bursts of 1008 ticks): P8C bursts instead, carrier unbroken */
-    if (hdr == 0x8C) {
-        IMG[3] = (uint8_t)(0x88 + P8C);
-        IMG[0x46] = (uint8_t)(P8C * 1008 + 8);
-        IMG[0x47] = (uint8_t)((P8C * 1008 + 8) >> 8);
+#ifdef PDYN
+    /* adaptive charging: the power programs (0x8C 4 bursts, 3 x 0x8B 3 bursts, carrier continuous) are shortened to
+     * 3 + 2 + 2 + 2 = 9 bursts only once the pen has been tracked for PDYN_LOOPS loops and the sensor gain shows it
+     * close (S1 gain byte <= PDYN_GAIN); while searching, right after lock-on and in high hover the pen gets the full
+     * 13 (v3.96 with a fixed 9: lock-on 3x slower and the first tracked reports ~1400 counts off). State at PDS. */
+    {
+        volatile uint32_t *q = PDS;
+        if (q[0] != PDMAGIC) {
+            q[0] = PDMAGIC; q[1] = 0; q[2] = 0; q[3] = 0; q[4] = 0; q[5] = 0;
+        }
+        if (hdr == 0x8E && !all_peak(6, px, py) && IMG[0x1B] == px && IMG[0x1A] != IMG[0x1C]) {
+            /* S1 pass a: one tracked loop (consecutive if the previous one was <= 12 events ago) */
+            uint32_t ev = s->ev;
+            q[1] = (ev - q[2] <= 12) ? q[1] + 1 : 0;
+            q[2] = ev;
+            uint8_t g = IMG[0x0E];
+            q[5] = g;
+            if (q[1] >= PDYN_LOOPS && g <= PDYN_GAIN)
+                q[3] = 1;
+            else if (q[1] < PDYN_LOOPS || g > PDYN_GAIN + 10)
+                q[3] = 0;
+        }
+        if (s->ev - q[2] > 12)
+            q[3] = 0;                           /* tracking lost: full charge */
+        if (q[3] && (hdr == 0x8C || hdr == 0x8B)) {
+            uint32_t n = hdr == 0x8C ? 3 : 2;
+            IMG[3] = (uint8_t)(0x88 + n);
+            IMG[0x46] = (uint8_t)(n * 1008 + 8);
+            IMG[0x47] = (uint8_t)((n * 1008 + 8) >> 8);
+            q[4]++;
+        }
     }
 #endif
     if (hdr == 0x8F && all_peak(7, px, py)) {

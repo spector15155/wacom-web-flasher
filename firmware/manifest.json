@@ -8,33 +8,33 @@
   },
   "firmware": [
     {
-      "file": "pth660_v396_450hz.pkg",
-      "size": 675035,
-      "sha256": "f65e58a660af5235bdc02c5f9cddd591530b0cfae7dc0b6f553bf658d01c0019",
-      "id": "v3.96",
-      "title": "v3.96 (~450 Hz, 2 real measurements per loop, shorter power phase)",
+      "file": "pth660_v440_450hz.pkg",
+      "size": 675559,
+      "sha256": "0ab4ff052f4da503e2c51e55eddce5009e60cdc452cb931131ddd81cda9a10c5",
+      "id": "v4.40",
+      "title": "v4.40 (~450 Hz, 2 real measurements per loop, adaptive charging)",
       "recommended": true,
       "kind": "custom",
-      "summary": "v3.62 on a faster scan loop. Wacom charges the pen with 13 transmit bursts (1.64 ms) every loop; the pen works the same with 9 (tested: pressure, buttons, hover like stock; 8 is too few), so the loop takes 4.47 ms instead of 4.97 ms: ~224 loops/s instead of ~201. The carrier stays unbroken (any pause in it confuses the pen). Everything else is v3.62: two real position measurements per loop (S1 and the pen-data scan S2 listening on the neighbour coils), Wacom's own calculation with a constant 4-result average, exactly one report per measurement (~448/s), no interpolation or prediction; short hover signal dips passed on as in range for up to 150 ms.",
+      "summary": "Two real position measurements per scan loop (S1 and the pen-data scan S2 listening on the neighbour coils), Wacom's own calculation with a constant 4-result average, exactly one report per measurement, no interpolation or prediction. Adaptive charging: Wacom charges the pen with 13 transmit bursts every loop; once the pen has been tracked for ~32 loops and is within normal hover height it gets 9 (carrier unbroken), so the loop takes 4.47 ms instead of 4.97 ms: ~452 reports/s instead of ~400. While the pen is being found, right after it comes into range and in very high hover it gets the full 13 again, so it locks on as fast and cleanly as with stock charging (a fixed 9, as in v3.96, made lock-on 3x slower and the first positions jump). Short hover signal dips are passed on as in range for up to 150 ms.",
       "images": [
         {
           "slot": "a",
-          "version": "0x0396",
+          "version": "0x0440",
           "base": "0x08040000",
-          "size": 336896,
-          "sha256": "58a8e27f214fbb19cb02c63290147e05866e528baaeac87f48b90ce54987e808"
+          "size": 337152,
+          "sha256": "ba80c14c2d747b42c4a4758873e3b5b062050821e15e150e4bb01c5ef6b2bfe2"
         },
         {
           "slot": "b",
-          "version": "0x0396",
+          "version": "0x0440",
           "base": "0x080A0000",
-          "size": 337408,
-          "sha256": "64e78d092c247e46b84ea4f23d13f8271a605c7a6c4af67baad49c719b8e957f"
+          "size": 337664,
+          "sha256": "dbb280f35976bad95283e24633eb03577245820a5665314cd6a72c975cf0bb5e"
         }
       ],
       "lag": "~7 ms",
       "method": "two measurements",
-      "short": "Method: two measurements. The pen-data part of each scan also locates the pen, so it is measured twice per scan, and the pen-charging part is shorter than Wacom's, so there are ~224 scans/s instead of ~201: ~448 real reports/s, exactly one per measurement, nothing added in between.",
+      "short": "Method: two measurements, adaptive charging. The pen is measured twice per scan, one report per measurement, nothing added in between. Once the pen is settled, the charging part of each scan is shorter, so there are ~11 % more scans: ~452 real reports/s; full charging while the pen comes into range keeps the pick-up quick and clean.",
       "howto": [
         "m4",
         "m4a",

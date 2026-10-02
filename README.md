@@ -22,7 +22,7 @@ pth660-webflash/
 │   ├── pth660_v245_best.pkg                 v2.45, recommended (~730 reports/s, lag ~7 ms est.)
 │   ├── pth660_v385_750hz.pkg                v3.85, recommended: v2.45 + second real measurement per loop (~750 reports/s, lag ~7 ms est.)
 │   ├── pth660_v378_1500hz.pkg               v3.78, ~1500 reports/s, 2 real measurements per loop, experimental (lag ~7-8 ms est.)
-│   ├── pth660_v396_450hz.pkg                v3.96, recommended: 2 real measurements per loop, shorter power phase: ~448 real reports/s, one per measurement (lag ~7 ms est.)
+│   ├── pth660_v440_450hz.pkg                v4.40, recommended: 2 real measurements per loop, adaptive charging: ~452 real reports/s, one per measurement (lag ~7 ms est.)
 │   ├── pth660_v328_2000hz.pkg               v3.28, ~2000 even reports/s (2 per USB packet), real positions only (lag ~9 ms est.)
 │   ├── pth660_v329_1000hz.pkg               v3.29, 1000 even reports/s, real positions only (lag ~8.5 ms est.)
 │   ├── pth660_v299_1000hz.pkg               v2.99, 1000 even reports/s interpolated from real scans (lag ~9 ms est.)
@@ -35,7 +35,7 @@ pth660-webflash/
 │   └── GIF_PROMPT.md         simple frame-by-frame image prompts: how the tablet finds the pen (stock scan loop)
 ├── reference/
 │   └── pth660_flash.py       working Python implementation to port (hidapi); status / info / flash / reboot
-└── build/                    rebuild v2.45 / v2.99 / v3.28 / v3.29 from v1.65, v3.96 from v1.61 (build/v396/, make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
+└── build/                    rebuild v2.45 / v2.99 / v3.28 / v3.29 from v1.65, v4.40 from v1.61 (build/v440/, make_s2c.py + s2x/*.c need arm-none-eabi-gcc; not needed by the UI)
     unpack_pkg.py             split a .pkg into its slot A / B .bin images (checks each sha256)
     ├── make_frame23.py       v1.65 image -> v2.45 image (per slot)
     ├── make_pkg.py           two slot images -> .pkg
@@ -106,7 +106,7 @@ python build/make_pkg.py --a slot_a_v245.bin --b slot_b_v245.bin --name "v2.45" 
 
 v3.78 (own sources in `build/v378/`, 7-frame bases there): see docs/FIRMWARE_HISTORY.md for the exact `make_s2c.py` command; byte-identical to the shipped package (sha256 `e8cbe9b2...` / `0e939d2a...`).
 
-v3.96 (own sources in `build/v396/`, plus `build/make_pburst.py`): see docs/FIRMWARE_HISTORY.md for the exact commands; byte-identical to the shipped package (sha256 `58a8e27f...` / `64e78d09...`).
+v4.40 (own sources in `build/v440/`): see docs/FIRMWARE_HISTORY.md for the exact command; byte-identical to the shipped package (sha256 `ba80c14c...` / `dbb280f3...`).
 
 v3.28: `python build/make_frame23.py --slot a --in build/base/slot_a_v165_600hz.bin --out slot_a_v245.bin --version 0x0245`, then `python build/make_s2c.py --slot a --in slot_a_v245.bin --out slot_a_v328.bin --version 0x0328 --output --pos output --nos2 --delay-us 3250 --double` (same for slot b; needs arm-none-eabi-gcc, path in `GCC_DIR`), then `make_pkg.py`. v3.29: same with `--version 0x0329` and `--pace` instead of `--double`. They were built from an earlier revision of `build/s2x/out.c` (before the proximity bridge and native modes), so the current sources no longer rebuild them byte for byte; the shipped packages are unchanged (v3.28 sha256 `30fbec23...` / `bc2ff81d...`, v3.29 `06454a98...` / `09e37e29...`).
 
