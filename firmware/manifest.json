@@ -8,33 +8,33 @@
   },
   "firmware": [
     {
-      "file": "pth660_v450_480hz.pkg",
-      "size": 676109,
-      "sha256": "c7ae0464bee4a02a8063f12336834e13441ed346f9224046be747e53d7f662fe",
-      "id": "v4.50",
-      "title": "v4.50 (~480 Hz, 2 real measurements per loop, faster scan loop)",
+      "file": "pth660_v453_480hz.pkg",
+      "size": 676096,
+      "sha256": "08d49e89a4ac66af122c455c4d2c0f032c76a29548c448de4ef6c370963fd7af",
+      "id": "v4.53",
+      "title": "v4.53 (~480 Hz, 2 real measurements per loop, faster scan loop)",
       "recommended": true,
       "kind": "custom",
-      "summary": "Two real position measurements per scan loop (S1 and the pen-data scan S2 listening on the neighbour coils), Wacom's own calculation with a constant 4-result average, exactly one report per measurement, no interpolation or prediction. The scan loop is ~16 % shorter than Wacom's (4.17 ms instead of 4.97): (1) adaptive charging: once the pen has been tracked for ~32 loops within normal hover height it is charged with 9 transmit bursts instead of 13 (carrier unbroken); while it is being found, right after it comes into range and in very high hover it gets the full 13, so it locks on as fast and cleanly as with stock charging; (2) the second half of the position scan no longer re-reads two coils it already has (12 -> 10 bursts; the two readings are filled in from the first). ~480 reports/s. Short hover signal dips are passed on as in range for up to 150 ms.",
+      "summary": "Two real position measurements per scan loop (S1 and the pen-data scan S2 listening on the neighbour coils), Wacom's own calculation with a constant 4-result average, exactly one report per measurement, no interpolation or prediction. The scan loop is shorter than Wacom's: (1) adaptive charging: once the pen has been tracked for ~32 loops and is close (tip down or low hover) it is charged with 9 transmit bursts instead of 13 (carrier unbroken); while it is being found, right after it comes into range and from middle hover upwards it gets the full 13, so it locks on as fast and holds as steadily as with stock charging; (2) the second half of the position scan no longer re-reads two coils it already has (12 -> 10 bursts). ~480 reports/s drawing and in low hover, ~430 in high hover. Short hover signal dips are passed on as in range for up to 150 ms.",
       "images": [
         {
           "slot": "a",
-          "version": "0x0450",
+          "version": "0x0453",
           "base": "0x08040000",
           "size": 337408,
-          "sha256": "a7d80f545ad0feab7aa03f46060ff965d4cf5428112d1e0216537fcbba0d7496"
+          "sha256": "73b6587e11ca6e72d5b32a6a5b79a638ae2fc78dc027ff7ce77804ea04bbaaf0"
         },
         {
           "slot": "b",
-          "version": "0x0450",
+          "version": "0x0453",
           "base": "0x080A0000",
           "size": 337920,
-          "sha256": "d6ef2c6053f3f25d60eb82eb42d24e888df77c92958ad936465b9846fca42e42"
+          "sha256": "2554fb713db675cdca823dcf86ff923271e1389cb2ab44baef8859a5ee576614"
         }
       ],
       "lag": "~7 ms",
       "method": "two measurements",
-      "short": "Method: two measurements, faster scan loop. The pen is measured twice per scan, one report per measurement, nothing added in between. Shorter pen charging once the pen is settled and no repeated coil reads give ~19 % more scans: ~480 real reports/s; full charging while the pen comes into range keeps the pick-up quick and clean.",
+      "short": "Method: two measurements, faster scan loop. The pen is measured twice per scan, one report per measurement, nothing added in between. Shorter pen charging while the pen is close and no repeated coil reads: ~480 real reports/s (~430 in high hover); full charging while the pen comes into range or is high keeps tracking as steady as stock.",
       "howto": [
         "m4",
         "m4a",
