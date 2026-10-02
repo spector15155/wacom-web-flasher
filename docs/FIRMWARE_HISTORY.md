@@ -11,7 +11,7 @@ v1.65 and v2.99 are older steps kept in the flasher under "Older builds".
 | **v2.45** (recommended) | more Wacom runs | ~200 | ~730 | ~7 ms |
 | v2.99 (older, replaced by v3.29) | even output | ~200 | 1000 | ~9 ms |
 | v3.29 / v3.28 | even output | ~200 | 1000 / 2000 | ~8.5 / ~9 ms |
-| **v4.40** (recommended) | two measurements, adaptive charging | ~452 | ~452 | ~7 ms |
+| **v4.50** (recommended) | two measurements, shorter scan loop | ~480 | ~480 | ~7 ms |
 | **v3.85** (recommended) | two measurements + more Wacom runs | ~400 | ~750 | ~7 ms |
 | v3.78 (experimental) | two measurements + more Wacom runs | ~400 | ~1500 | ~7-8 ms |
 
@@ -32,7 +32,7 @@ v1.65 and v2.99 are older steps kept in the flasher under "Older builds".
    moves in several smaller steps instead of one jump. No new measurements.
 2. **Even output** (v2.99, v3.29, v3.28): a new output stage places reports at exact 1 ms (0.5 ms) intervals on the
    path between positions Wacom has already delivered. No prediction.
-3. **Two measurements** (v4.40, v3.78, v3.85): during S2 one axis listens on the pen's neighbour coils while the other keeps
+3. **Two measurements** (v4.50, v3.78, v3.85): during S2 one axis listens on the pen's neighbour coils while the other keeps
    reading the bits, which gives a second real position per loop.
 
 ## v2.45 (recommended): more Wacom runs
@@ -79,9 +79,12 @@ its 4-result moving average); the HID task sends one report on every 1 ms tick, 
 the two newest real positions at "now - 6 ms" (never past the newest point). Measured 997 reports/s in range. v3.29
 does the same job with better timing. Build: `make_cycles.py --k 0 --upsample 6 --perscan`.
 
-## v4.40 (~450 Hz): v3.62 with adaptive charging
+## v4.50 (~480 Hz): v3.62 with a shorter scan loop
 
-`firmware/pth660_v440_450hz.pkg`, sources `build/v440/` (v3.62's `make_s2c.py` + `s2x/` with one option added).
+`firmware/pth660_v450_480hz.pkg`, sources `build/v450/` (v3.62's `make_s2c.py` + `s2x/` with two options added).
+Measured loop 4.17 ms (~240 loops/s) instead of 4.97 ms, ~480 reports/s. Two changes:
+
+**1. Adaptive charging (`--pdyn 32 --pdyn-gain 205`, v4.40).**
 Every loop Wacom charges the pen with a continuous carrier of 13 transmit bursts (power programs 0x8C 4 bursts + 3 x
 0x8B 3 bursts of 1008 ticks, 1.64 ms), then a short sync burst. Tested on one tablet with a fixed shorter carrier:
 
@@ -99,17 +102,25 @@ the sensor's gain byte of the S1 program (+0x0E: 141 tip down, ~155-204 tracked 
 tracked loops with gain <= 205 it shortens each power program's burst count (0x8C 4 -> 3, each 0x8B 3 -> 2: 9 bursts,
 step period +0x46 = n x 1008 + 8); it goes back to 13 when the gain rises above 215 or tracking stops. The carrier is
 never interrupted (pauses inside it look like the sync to the pen, v3.90-v3.94) and Wacom's own burst counting is
-unchanged. Measured: 452 reports/s settled (hover and drawing), full charging only around pen entries.
+unchanged. Measured (v4.40, charging only): 452 reports/s settled, full charging only around pen entries.
+
+**2. No repeated coil reads in S1 (`--s1trim`).** S1 pass b reads window offsets 8, 7, 6, 5, 4, 5: offset 5 twice
+and offset 4 again after pass a. Its program is cut to the first 4 bursts (burst count 6 -> 4, step period
+4 x 1008 + 1); before Wacom unpacks the results, slot 4 gets pass a's offset-4 reading (0.5 ms older) and slot 5 a
+copy of slot 3 (offset 5). Saves 2016 ticks per loop. Feel unchanged in testing.
+
+Tried and dropped on top (the S1 and S2 burst timing is fixed): S1 pause before listening 240 -> 120 ticks
+(v4.51: much noisier), S2 listening 408 -> 300 ticks (v4.52: pen stopped working).
 
 Everything else is v3.62 (below).
 
-Build (byte-identical; needs arm-none-eabi-gcc), in `build/v440/`: `python make_s2c.py --slot a --in
-../base/slot_a_v161_f29.bin --out slot_a_v440.bin --version 0x0440 --output --minimal --s2norm --layout1 --lean --mawin
-4 --mahover 4 --pdyn 32 --pdyn-gain 205` (same for slot b), then `../make_pkg.py`.
+Build (byte-identical; needs arm-none-eabi-gcc), in `build/v450/`: `python make_s2c.py --slot a --in
+../base/slot_a_v161_f29.bin --out slot_a_v450.bin --version 0x0450 --output --minimal --s2norm --layout1 --lean --mawin
+4 --mahover 4 --pdyn 32 --pdyn-gain 205 --s1trim` (same for slot b), then `../make_pkg.py`.
 
-## v3.62 (~400 Hz, replaced by v4.40): two measurements
+## v3.62 (~400 Hz, replaced by v4.50): two measurements
 
-No longer in the flasher: v4.40 is the same build with adaptive charging. Base: the v1.61 frame setup (`make_frame2.py --steps 29 --calc1` on the stock
+No longer in the flasher: v4.50 is the same build with a shorter scan loop. Base: the v1.61 frame setup (`make_frame2.py --steps 29 --calc1` on the stock
 images, `build/base/slot_?_v161_f29.bin`): Wacom's calc gets a frame after step 24 (S1) and after step 29 (S2),
 nothing else. The S2 engine (`build/s2x/s2x.c`, `--s2norm --layout1`) adds the second real position of the loop:
 - the step hook rewrites only the receive coil list of the two S2 passes (transmit stays on the peak):
@@ -204,7 +215,7 @@ higher report rate doesn't lower lag by itself.
 | v2.99 | 1000 (even) | ~9 ms | fixed 6 ms interpolation delay from frame hand-over + Wacom's 2-scan per-scan average (~2.4 ms) + USB (~0.5 ms) |
 | v3.29 | 1000 (even) | ~8.5 ms | Wacom's own output at frame hand-over (~5.6 ms) + ~2.5 ms fixed delay behind it + USB (~0.5 ms) |
 | v3.28 | ~1900-2000 (even, 2 per packet) | ~9 ms | as v3.29; the first report of each packet is half a tick older (+0.25 ms avg) |
-| v4.40 | ~452 (one per real measurement) | ~7 ms | Wacom's own processing: constant 4-result average over S1 / S2 results (~1 loop of 4.47 ms) + calc -> USB (~0.9 ms) + USB (~0.5 ms) |
+| v4.50 | ~480 (one per real measurement) | ~7 ms | Wacom's own processing: constant 4-result average over S1 / S2 results (~1 loop of 4.47 ms) + calc -> USB (~0.9 ms) + USB (~0.5 ms) |
 | v3.78 | ~1500 (2 per USB packet) | ~7-8 ms | Wacom's own processing: constant 7-result average over ~7 results per loop (~1 loop) + calc -> USB (~0.9 ms) + USB (~0.5 ms); a result that waits for its USB partner adds up to 1 ms (~5 % of reports) |
 
 ## Useful tools

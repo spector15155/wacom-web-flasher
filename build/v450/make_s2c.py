@@ -230,6 +230,7 @@ def main():
                     help="--output: minimal native output (s2x/nat.c): Wacom's own report for every S1 / S2 result, "
                          "step-28 result dropped; nothing else")
     ap.add_argument("--layout1", action="store_true", help="--s2norm: v3.45 pass-b layout (edge bursts on the peak)")
+    ap.add_argument("--s1trim", action="store_true", help="S1 pass b: 4 bursts (no duplicate reads)")
     ap.add_argument("--pdyn", type=int, default=0, metavar="LOOPS",
                     help="adaptive charging: 9 power bursts after LOOPS tracked loops with S1 gain <= --pdyn-gain, else 13")
     ap.add_argument("--pdyn-gain", dest="pdyn_gain", type=int, default=205)
@@ -301,6 +302,8 @@ def main():
         defines["LEAN"] = "1"
     if a.natlog:
         defines["NATLOG"] = "1"
+    if a.s1trim:
+        defines["S1TRIM"] = "1"
     if a.pdyn:
         defines.update(PDYN="1", PDYN_LOOPS=str(a.pdyn), PDYN_GAIN=str(a.pdyn_gain))
     if a.layout1:

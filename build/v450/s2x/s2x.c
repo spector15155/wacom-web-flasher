@@ -146,6 +146,22 @@ void s2x_step(void)
         }
     }
 #endif
+#ifdef S1TRIM
+    uint8_t trim = 0;
+    /* S1 pass b (offsets 8,7,6,5,4,5): only the first 4 bursts (8,7,6,5) are measured; slot 4 (offset 4, already read
+     * by pass a) and slot 5 (offset 5 again) are filled before Wacom's unpack. Pass a is tagged to keep its slot 4. */
+    if (hdr == 0x8E && !all_peak(6, px, py) && IMG[0x1B] == px && IMG[0x22] == py) {
+        if (IMG[0x1A] == IMG[0x1C] && IMG[0x21] == IMG[0x23]) {
+            IMG[3] = 0x8C;
+            IMG[0x46] = (uint8_t)(4 * 1008 + 1);
+            IMG[0x47] = (uint8_t)((4 * 1008 + 1) >> 8);
+            trim = 0x52;
+        }
+        if (IMG[0x1A] != IMG[0x1C] && IMG[0x21] != IMG[0x23]) {
+            trim = 0x51;
+        }
+    }
+#endif
     if (hdr == 0x8F && all_peak(7, px, py)) {
 #ifdef S2NORM
         if (mask) { IMG[0x18] = xl; IMG[0x19] = xr; IMG[0x21] = yl; IMG[0x22] = yr; }
@@ -194,6 +210,10 @@ void s2x_step(void)
             }
         }
     }
+#ifdef S1TRIM
+    if (trim)
+        tag = trim;
+#endif
     s->tag[s->ev & 3] = tag;
 }
 
@@ -402,6 +422,25 @@ void s2x_event(uint8_t *r)
     s->tag[(ev - 3) & 3] = 0;
     if (!tag)
         return;
+#ifdef S1TRIM
+    if (tag == 0x51 || tag == 0x52) {
+        volatile uint8_t *keep = (volatile uint8_t *)0x2003F940;   /* pass a slot 4 (offset 4), X and Y raw */
+        for (int ax = 0; ax < 2; ax++) {
+            uint8_t *base = r + 1 + 0x46 * ax;
+            if (tag == 0x51) {
+                for (int i = 0; i < 10; i++)
+                    keep[10 * ax + i] = base[40 + i];
+            } else {
+                for (int i = 0; i < 10; i++) {
+                    base[40 + i] = keep[10 * ax + i];
+                    base[50 + i] = base[30 + i];
+                }
+            }
+        }
+        (*(volatile uint32_t *)(0x2003F960 + (tag == 0x52 ? 4 : 0)))++;
+        return;
+    }
+#endif
     int pass = (tag & 3) - 1;
     uint8_t mask = tag >> 2;
     volatile uint8_t *e = LOG + s->idx * ESZ;
